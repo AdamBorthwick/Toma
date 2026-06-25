@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&amp;family=Nunito:ital,wght@0,400;0,600;0,700;1,400&amp;display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  @keyframes sproutBob{0%,100%{transform:translateY(0) rotate(0deg)}50%{transform:translateY(-7px) rotate(-1deg)}}
+  @keyframes blink{0%,90%,100%{transform:scaleY(1)}94%{transform:scaleY(0.08)}}
+  @keyframes steamRise{0%{transform:translateY(0) scale(0.7);opacity:0}25%{opacity:.65}100%{transform:translateY(-40px) scale(1.5);opacity:0}}
+  @keyframes flameDance{0%,100%{transform:scaleY(1) rotate(-2deg)}50%{transform:scaleY(1.15) rotate(2deg)}}
+  @keyframes leafSway{0%,100%{transform:rotate(-4deg)}50%{transform:rotate(4deg)}}
+  @keyframes mittWaveL{0%,100%{transform:rotate(-8deg)}50%{transform:rotate(2deg)}}
+  @keyframes mittWaveR{0%,100%{transform:rotate(8deg)}50%{transform:rotate(-2deg)}}
+  @keyframes hintPulse{0%,100%{opacity:.55}50%{opacity:1}}
+  @keyframes blinkLid{0%,90%,100%{transform:scaleY(0)}94%,96%{transform:scaleY(1)}}
+</style>
+</helmet>
+<div style="height:100vh;width:100%;display:flex;align-items:center;justify-content:center;overflow:hidden;background:radial-gradient(120% 100% at 50% 0%,#FCEFDB 0%,#F6E0C2 60%,#EFD2AC 100%);font-family:'Fredoka',sans-serif;">
+  <div style="transform:{{ stageScale }};transform-origin:center center;">
+  <div data-stage="1" style="position:relative;width:1080px;height:960px;">
+
+    <!-- floor shadow under shelf -->
+    <div style="position:absolute;left:90px;bottom:36px;width:600px;height:34px;border-radius:50%;background:rgba(120,75,30,0.18);filter:blur(7px);z-index:0;"></div>
+
+    <!-- header -->
+    <div style="position:absolute;left:24px;top:18px;z-index:9;">
+      <div style="font-size:26px;font-weight:700;color:#5a3a1f;letter-spacing:-0.5px;">Sprout's Library</div>
+      <div style="font-size:14px;font-weight:500;color:#9a7c5a;margin-top:2px;animation:hintPulse 2.6s ease-in-out infinite;">Hover a book — Sprout will point. Click to read it.</div>
+    </div>
+
+    <!-- CREATURE HEAD (right of shelf, pans vertically with the hovered row) -->
+    <div style="{{ headStyle }}">
+      <div style="position:absolute;inset:0;animation:sproutBob 4.6s ease-in-out infinite;">
+        <img src="assets/head.svg" alt="" draggable="false" style="width:100%;height:100%;display:block;">
+        <div style="position:absolute;left:50px;top:47px;width:42px;height:30px;background:#BFFFB5;border-radius:50% 50% 48% 48%;transform-origin:center top;animation:blinkLid 5s infinite;animation-delay:.2s;"></div>
+        <div style="position:absolute;left:150px;top:47px;width:42px;height:30px;background:#BFFFB5;border-radius:50% 50% 48% 48%;transform-origin:center top;animation:blinkLid 5s infinite;animation-delay:.2s;"></div>
+      </div>
+    </div>
+
+    <!-- MUG on top of shelf -->
+    <div style="position:absolute;left:148px;top:98px;z-index:6;">
+      <div style="position:absolute;left:30px;top:-6px;width:8px;height:8px;background:#cfcfcf;border-radius:50%;animation:steamRise 2.6s ease-in infinite;"></div>
+      <div style="position:absolute;left:42px;top:0px;width:7px;height:7px;background:#cfcfcf;border-radius:50%;animation:steamRise 2.6s ease-in infinite;animation-delay:.7s;"></div>
+      <div style="position:absolute;left:36px;top:4px;width:9px;height:9px;background:#cfcfcf;border-radius:50%;animation:steamRise 2.6s ease-in infinite;animation-delay:1.3s;"></div>
+      <div style="position:absolute;left:24px;top:34px;width:54px;height:46px;background:#EE5B43;border-radius:8px 8px 12px 12px;"></div>
+      <div style="position:absolute;left:72px;top:44px;width:22px;height:24px;border:7px solid #EE5B43;border-radius:0 50% 50% 0;border-left:none;"></div>
+    </div>
+
+    <!-- BOOKSHELF -->
+    <div style="position:absolute;left:78px;top:178px;width:624px;z-index:2;">
+      <!-- top board -->
+      <div style="height:18px;background:#E69A52;border-radius:10px 10px 4px 4px;box-shadow:inset 0 3px 0 rgba(255,255,255,0.25);"></div>
+      <sc-for list="{{ shelves }}" as="shelf" hint-placeholder-count="3">
+        <div style="position:relative;display:flex;background:#F4B777;border-left:16px solid #E69A52;border-right:16px solid #E69A52;">
+          <!-- inner back -->
+          <div style="position:relative;flex:1;height:168px;display:flex;align-items:flex-end;gap:4px;padding:0 14px 0 16px;background:linear-gradient(180deg,#F7C58C 0%,#F2B074 100%);overflow:visible;">
+            <sc-for list="{{ shelf.items }}" as="item" hint-placeholder-count="6">
+              <!-- vertical book -->
+              <sc-if value="{{ item.isBook }}" hint-placeholder-val="{{ true }}">
+                <div onMouseEnter="{{ item.onEnter }}" onMouseLeave="{{ item.onLeave }}" onClick="{{ item.onClick }}" style="{{ item.wrapStyle }}">
+                  <span style="{{ item.titleStyle }}">{{ item.title }}</span>
+                </div>
+              </sc-if>
+              <!-- horizontal stack -->
+              <sc-if value="{{ item.isStack }}" hint-placeholder-val="{{ false }}">
+                <div style="{{ item.stackStyle }}">
+                  <sc-for list="{{ item.books }}" as="b" hint-placeholder-count="3">
+                    <div onMouseEnter="{{ b.onEnter }}" onMouseLeave="{{ b.onLeave }}" onClick="{{ b.onClick }}" style="{{ b.barStyle }}">
+                      <span style="{{ b.barTitleStyle }}">{{ b.title }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+              <!-- plant -->
+              <sc-if value="{{ item.isPlant }}" hint-placeholder-val="{{ false }}">
+                <div style="position:relative;width:88px;height:150px;flex:0 0 auto;">
+                  <div style="position:absolute;left:30px;bottom:46px;width:6px;height:64px;background:#4f9d4a;border-radius:4px;"></div>
+                  <div style="position:absolute;left:6px;bottom:78px;width:36px;height:22px;background:#5cb356;border-radius:60% 0 60% 0;transform-origin:bottom right;animation:leafSway 3.4s ease-in-out infinite;"></div>
+                  <div style="position:absolute;left:46px;bottom:64px;width:36px;height:22px;background:#4f9d4a;border-radius:0 60% 0 60%;transform-origin:bottom left;animation:leafSway 3.4s ease-in-out infinite;animation-delay:.6s;"></div>
+                  <div style="position:absolute;left:18px;bottom:104px;width:52px;height:40px;animation:leafSway 4s ease-in-out infinite;transform-origin:bottom center;">
+                    <div style="position:absolute;left:12px;top:0;width:28px;height:30px;background:#F2762E;border-radius:60% 60% 40% 40%;"></div>
+                    <div style="position:absolute;left:0;top:8px;width:22px;height:26px;background:#F58A47;border-radius:60% 40% 50% 50%;transform:rotate(-20deg);"></div>
+                    <div style="position:absolute;left:30px;top:8px;width:22px;height:26px;background:#E8631E;border-radius:40% 60% 50% 50%;transform:rotate(20deg);"></div>
+                  </div>
+                  <div style="position:absolute;left:18px;bottom:6px;width:52px;height:46px;background:#EBE4D7;border-radius:6px 6px 12px 12px;"></div>
+                  <div style="position:absolute;left:14px;bottom:46px;width:60px;height:12px;background:#F2EBDD;border-radius:4px;"></div>
+                </div>
+              </sc-if>
+              <!-- candle -->
+              <sc-if value="{{ item.isCandle }}" hint-placeholder-val="{{ false }}">
+                <div style="position:relative;width:64px;height:120px;flex:0 0 auto;margin-right:6px;">
+                  <div style="position:absolute;left:18px;bottom:34px;width:8px;height:14px;background:radial-gradient(circle at 50% 30%,#FFF1A6 0%,#FCC838 55%,#F2762E 100%);border-radius:50% 50% 45% 45%;transform-origin:bottom center;animation:flameDance 1.3s ease-in-out infinite;box-shadow:0 0 22px 8px rgba(252,200,56,0.5);"></div>
+                  <div style="position:absolute;left:6px;bottom:6px;width:32px;height:42px;background:linear-gradient(90deg,#F4EDE0,#E7DCC8);border-radius:5px;"></div>
+                  <div style="position:absolute;left:0px;bottom:0px;width:44px;height:14px;background:#C9883F;border-radius:6px;"></div>
+                </div>
+              </sc-if>
+            </sc-for>
+            <!-- section tab -->
+            <div style="{{ shelf.tabStyle }}">{{ shelf.label }}</div>
+          </div>
+        </div>
+        <!-- shelf board -->
+        <div style="height:20px;background:#E69A52;border-radius:3px;box-shadow:inset 0 3px 0 rgba(255,255,255,0.22),0 4px 6px rgba(150,90,40,0.25);"></div>
+      </sc-for>
+    </div>
+
+    <!-- right wooden post (shelf right frame) -->
+    
+
+    <!-- top board cover (hides the arm's origin behind the shelf top) -->
+    <div style="position:absolute;left:78px;top:176px;width:624px;height:20px;background:#E69A52;border-radius:10px 10px 4px 4px;box-shadow:inset 0 3px 0 rgba(255,255,255,0.25);z-index:11;"></div>
+
+    <!-- ARM: 45° upper arm + horizontal forearm + hand. Origin tucks behind the head. -->
+    <svg width="1080" height="960" style="position:absolute;left:0;top:0;pointer-events:none;z-index:9;overflow:visible;">
+      <path d="{{ uaPath }}" fill="none" stroke="#BFFFB5" stroke-width="48" stroke-linecap="round" style="{{ armPathStyle }}"></path>
+      <path d="{{ faPath }}" fill="none" stroke="#BFFFB5" stroke-width="48" stroke-linecap="round" style="{{ armPathStyle }}"></path>
+      <g transform="{{ handTransform }}" style="{{ handStyle }}">
+        <circle cx="92" cy="0" r="44" fill="#BFFFB5"></circle>
+        <path d="M86 -40 C 72 -55, 44 -53, 33 -45" stroke="#ACFF9F" stroke-width="23" stroke-linecap="round" fill="none"></path>
+        <path d="M69 -25 L 2 -24" stroke="#BFFFB5" stroke-width="23" stroke-linecap="round" fill="none"></path>
+        <path d="M60 -2 L 37 -2" stroke="#BFFFB5" stroke-width="23" stroke-linecap="round" fill="none"></path>
+        <path d="M64 18 L 41 18" stroke="#BFFFB5" stroke-width="23" stroke-linecap="round" fill="none"></path>
+        <path d="M86 36 L 45 36" stroke="#BFFFB5" stroke-width="23" stroke-linecap="round" fill="none"></path>
+      </g>
+    </svg>
+
+    <!-- CLOSE-UP OVERLAY -->
+    <sc-if value="{{ overlayActive }}" hint-placeholder-val="{{ false }}">
+      <div onClick="{{ closeBook }}" style="{{ backdropStyle }}">
+        <div onClick="{{ stop }}" style="position:relative;width:640px;height:520px;display:flex;align-items:center;justify-content:center;">
+          <!-- spread -->
+          <div style="{{ spreadStyle }}">
+            <!-- right inner page (blurb) -->
+            <div style="position:absolute;left:50%;top:0;width:300px;height:420px;background:linear-gradient(180deg,#FBF6EC,#F1E7D2);border-radius:0 10px 10px 0;box-shadow:inset 14px 0 22px -12px rgba(120,90,50,0.4);padding:34px 30px;">
+              <div style="font-family:'Fredoka';font-size:13px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:{{ sel.accent }};">{{ sel.category }}</div>
+              <div style="width:38px;height:3px;background:{{ sel.accent }};border-radius:2px;margin:10px 0 18px;"></div>
+              <div style="font-family:'Nunito';font-size:16px;line-height:1.62;color:#5a4631;">{{ sel.blurb }}</div>
+            </div>
+            <!-- cover (flips open) -->
+            <div style="{{ coverStyle }}">
+              <!-- front cover art -->
+              <div style="position:absolute;inset:0;backface-visibility:hidden;border-radius:8px 4px 4px 8px;background:{{ sel.coverBg }};box-shadow:0 18px 40px rgba(60,30,10,0.35);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px 24px;text-align:center;">
+                <div style="font-family:'Fredoka';font-size:11px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:{{ sel.coverInk }};opacity:.8;">{{ sel.author }}</div>
+                <div style="flex:1;display:flex;align-items:center;justify-content:center;font-family:'Fredoka';font-size:27px;font-weight:700;line-height:1.1;color:{{ sel.coverInk }};">{{ sel.title }}</div>
+                <div style="width:46px;height:46px;border-radius:50%;border:2px solid {{ sel.coverInk }};opacity:.55;display:flex;align-items:center;justify-content:center;font-size:20px;color:{{ sel.coverInk }};">✦</div>
+              </div>
+              <!-- back of cover = inner left page -->
+              <div style="position:absolute;inset:0;backface-visibility:hidden;transform:rotateY(180deg);border-radius:10px 0 0 10px;background:linear-gradient(180deg,#FBF6EC,#F1E7D2);box-shadow:inset -14px 0 22px -12px rgba(120,90,50,0.4);display:flex;flex-direction:column;justify-content:center;padding:34px 30px;">
+                <div style="font-family:'Fredoka';font-size:30px;font-weight:700;line-height:1.12;color:#3d2c18;">{{ sel.title }}</div>
+                <div style="font-family:'Nunito';font-size:16px;font-weight:700;color:{{ sel.accent }};margin-top:14px;">{{ sel.author }}</div>
+                <div style="margin-top:20px;font-family:'Nunito';font-style:italic;font-size:14px;color:#9a7c5a;">From the {{ sel.category }} shelf</div>
+              </div>
+            </div>
+          </div>
+          <!-- creature mitts holding the book -->
+          <div style="{{ mittLStyle }}"></div>
+          <div style="{{ mittRStyle }}"></div>
+          <!-- close button -->
+          <div onClick="{{ closeBook }}" style="position:absolute;right:-6px;top:-6px;width:44px;height:44px;border-radius:50%;background:#fff;box-shadow:0 6px 16px rgba(60,30,10,0.25);display:flex;align-items:center;justify-content:center;font-size:22px;color:#8a6a48;cursor:pointer;z-index:5;">✕</div>
+        </div>
+      </div>
+    </sc-if>
+
+  </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = {
+    hoveredId: null,
+    target: null,
+    armProgress: 0,
+    handVisible: false,
+    mood: 'idle',
+    selected: null,
+    openPhase: 'closed',
+    scale: 1,
+  };
+
+  constructor(props) {
+    super(props);
+    this.faceCenter = { x: 425, y: 165 };
+    this.closeBook = () => this.doClose();
+    this.stop = (e) => { e.stopPropagation(); };
+    this.onStageMove = this.onStageMove.bind(this);
+    this.onStageLeave = this.onStageLeave.bind(this);
+    this._updateScale = this._updateScale.bind(this);
+  }
+
+  componentDidMount() {
+    this._updateScale();
+    window.addEventListener('resize', this._updateScale);
+    this._attach();
+  }
+  _attach() {
+    const el = document.querySelector('[data-stage]');
+    if (!el) { this._attachT = setTimeout(() => this._attach(), 50); return; }
+    this._stage = el;
+    this._nativeMove = (e) => this._handleMove(e);
+    this._nativeLeave = () => this.onStageLeave();
+    el.addEventListener('mousemove', this._nativeMove);
+    el.addEventListener('mouseleave', this._nativeLeave);
+  }
+  _handleMove(e) {
+    if (this.state.selected) return;
+    const stage = this._stage.getBoundingClientRect();
+    const sc = this.state.scale || 1;
+    this.setState({ target: { x: (e.clientX - stage.left) / sc, y: (e.clientY - stage.top) / sc } });
+  }
+  componentWillUnmount() {
+    window.removeEventListener('resize', this._updateScale);
+    clearTimeout(this._attachT);
+    if (this._stage) {
+      this._stage.removeEventListener('mousemove', this._nativeMove);
+      this._stage.removeEventListener('mouseleave', this._nativeLeave);
+    }
+  }
+  _updateScale() {
+    const s = Math.min(1, (window.innerWidth - 40) / 1080, (window.innerHeight - 40) / 960);
+    this.setState({ scale: Math.max(0.45, s) });
+  }
+
+  data() {
+    if (this._data) return this._data;
+    const C = (id, title, author, spine, ink, h, w, coverBg, coverInk, blurb) =>
+      ({ id, title, author, spine, ink, h, w, coverBg, coverInk, blurb });
+    this._data = [
+      {
+        label: 'Classics', accent: '#E0A21C', tabBg: '#F4C24B', tabInk: '#6b4e10',
+        items: [
+          { type: 'book', ...C('dracula', 'Dracula', 'Bram Stoker', '#1c1c1c', '#d94f3d', 150, 30, '#1c1c1c', '#f4ede0', 'A Transylvanian count, a trail of letters, and a creeping dread that has never quite left the genre.') },
+          { type: 'book', ...C('sherlock', 'Sherlock Holmes', 'A. C. Doyle', '#c9b184', '#3a2a14', 158, 32, '#c9b184', '#3a2a14', 'The world\u2019s most famous detective and twelve cases that made deduction look like magic.') },
+          { type: 'book', ...C('animalfarm', 'Animal Farm', 'George Orwell', '#7d1f1f', '#f4ede0', 142, 26, '#7d1f1f', '#f4ede0', 'All animals are equal\u2014until a fable about a farmyard revolution proves some are more equal than others.') },
+          { type: 'book', ...C('journey', 'Journey to the Centre of the Earth', 'Jules Verne', '#bcd9e0', '#234a52', 168, 30, '#bcd9e0', '#234a52', 'Down a volcano and into the impossible\u2014Verne\u2019s grand subterranean expedition.') },
+          { type: 'book', ...C('mockingbird', 'To Kill a Mockingbird', 'Harper Lee', '#2f7d6e', '#f4ede0', 162, 34, '#2f7d6e', '#f4ede0', 'A small Southern town, a wrongful trial, and a childhood that learns what courage costs.') },
+          { type: 'stack', id: 'classics-stack', books: [
+            C('littlewomen', 'Little Women', 'L. M. Alcott', '#ece3cf', '#7a3a6e', 26, 232, '#ece3cf', '#7a3a6e', 'Four March sisters grow up amid love, loss and ambition in Civil-War New England.'),
+            C('twocities', 'A Tale of Two Cities', 'Charles Dickens', '#e9dfc6', '#9a2f2f', 26, 232, '#e9dfc6', '#9a2f2f', 'London and Paris, sacrifice and resurrection, in Dickens\u2019 great novel of revolution.'),
+            C('mobydick', 'Moby Dick', 'Herman Melville', '#1b1b1b', '#7fb8d6', 30, 232, '#1b1b1b', '#7fb8d6', 'One captain\u2019s obsession with a white whale becomes literature\u2019s deepest dive.'),
+          ] },
+        ],
+      },
+      {
+        label: 'Fantasy', accent: '#5a9e3f', tabBg: '#88c46a', tabInk: '#2c4a18',
+        items: [
+          { type: 'book', ...C('got', 'A Game of Thrones', 'G. R. R. Martin', '#161616', '#e8e8e8', 168, 32, '#161616', '#e8e8e8', 'Winter is coming\u2014and so are the schemes of every house clawing toward the Iron Throne.') },
+          { type: 'book', ...C('namewind', 'The Name of the Wind', 'Patrick Rothfuss', '#1f3a5f', '#dfe7ef', 162, 30, '#1f3a5f', '#dfe7ef', 'A gifted, haunted young man tells the story of how legend and ruin became the same thing.') },
+          { type: 'book', ...C('poppywar', 'The Poppy War', 'R. F. Kuang', '#5a1a1a', '#e8a23d', 150, 28, '#5a1a1a', '#e8a23d', 'A war orphan claws into an elite academy and discovers a terrible, godlike power.') },
+          { type: 'book', ...C('fellowship', 'The Fellowship of the Ring', 'J. R. R. Tolkien', '#efe6cf', '#5a3210', 170, 32, '#efe6cf', '#5a3210', 'One ring, nine companions, and the long road that begins all modern fantasy.') },
+          { type: 'stack', id: 'fantasy-stack', books: [
+            C('dragonreborn', 'The Dragon Reborn', 'Robert Jordan', '#103022', '#d9b860', 24, 250, '#103022', '#d9b860', 'The Wheel turns and a reluctant hero edges closer to a prophecy he can\u2019t outrun.'),
+            C('fourthwing', 'Fourth Wing', 'Rebecca Yarros', '#d9cdb6', '#5a3a1a', 24, 250, '#d9cdb6', '#5a3a1a', 'Bond with a dragon or die trying\u2014war college has never been this lethal.'),
+            C('hp', 'Harry Potter & the Sorcerer\u2019s Stone', 'J. K. Rowling', '#0d1b3a', '#e8b84b', 24, 250, '#0d1b3a', '#e8b84b', 'A boy learns he\u2019s a wizard and steps through the wall into a hidden world.'),
+            C('finalempire', 'The Final Empire', 'Brandon Sanderson', '#cfe0ee', '#1c3a52', 28, 250, '#cfe0ee', '#1c3a52', 'In a world of ash and mist, a street thief learns to swallow metal and move mountains.'),
+          ] },
+          { type: 'plant', id: 'plant1' },
+        ],
+      },
+      {
+        label: 'Sci-Fi', accent: '#3a86c2', tabBg: '#5fa9d6', tabInk: '#123a52',
+        items: [
+          { type: 'candle', id: 'candle1' },
+          { type: 'stack', id: 'scifi-stack', books: [
+            C('redrising', 'Red Rising', 'Pierce Brown', '#161616', '#d94f3d', 24, 240, '#161616', '#d94f3d', 'A lowborn miner infiltrates the gilded elite to burn their society down from inside.'),
+            C('f451', 'Fahrenheit 451', 'Ray Bradbury', '#e74c3c', '#1c1c1c', 24, 240, '#e74c3c', '#1c1c1c', 'A fireman whose job is burning books begins, dangerously, to read them.'),
+            C('axiom', 'Axiom\u2019s End', 'Lindsay Ellis', '#161616', '#d94f3d', 24, 240, '#161616', '#d94f3d', 'First contact arrives messy, political and far stranger than the movies promised.'),
+          ] },
+          { type: 'book', ...C('dune', 'Dune', 'Frank Herbert', '#0a0a0a', '#e8a23d', 168, 32, '#0a0a0a', '#e8a23d', 'Spice, sandworms and a desert messiah\u2014the epic that defined science fiction.') },
+          { type: 'book', ...C('frankenstein', 'Frankenstein', 'Mary Shelley', '#6b1414', '#e8ddc8', 158, 28, '#6b1414', '#e8ddc8', 'A scientist gives life to a creature\u2014and learns too late what he owes it.') },
+          { type: 'book', ...C('martian', 'The Martian', 'Andy Weir', '#b23b2e', '#f4ede0', 164, 30, '#b23b2e', '#f4ede0', 'Stranded on Mars with duct tape and stubbornness, one astronaut science-es his way home.') },
+          { type: 'book', ...C('2001', '2001: A Space Odyssey', 'Arthur C. Clarke', '#1b1b1b', '#e8c84b', 170, 28, '#1b1b1b', '#e8c84b', 'A black monolith nudges humanity from the bone to the stars\u2014and beyond.') },
+          { type: 'book', ...C('phm', 'Project Hail Mary', 'Andy Weir', '#0e1a3a', '#5fc8e0', 156, 30, '#0e1a3a', '#5fc8e0', 'A lone amnesiac wakes light-years from home as Earth\u2019s last, unlikely hope.') },
+        ],
+      },
+      {
+        label: 'Mystery', accent: '#8E5BB5', tabBg: '#B98AD6', tabInk: '#3d2354',
+        items: [
+          { type: 'book', ...C('gonegirl', 'Gone Girl', 'Gillian Flynn', '#e9e2d0', '#b8302a', 150, 28, '#e9e2d0', '#b8302a', 'A wife vanishes on her anniversary, and every clue makes her husband look guiltier.') },
+          { type: 'book', ...C('dragontattoo', 'The Girl with the Dragon Tattoo', 'Stieg Larsson', '#161616', '#e8a23d', 168, 30, '#161616', '#e8a23d', 'A disgraced journalist and a feral hacker dig into a family’s decades-old disappearance.') },
+          { type: 'book', ...C('andthen', 'And Then There Were None', 'Agatha Christie', '#1a3a2e', '#e8ddc8', 160, 28, '#1a3a2e', '#e8ddc8', 'Ten strangers, one island, and a nursery rhyme that keeps coming true.') },
+          { type: 'book', ...C('silentpatient', 'The Silent Patient', 'Alex Michaelides', '#2a5a8a', '#f0e8d8', 156, 30, '#2a5a8a', '#f0e8d8', 'She shot her husband, then never spoke again. One therapist is sure he can reach her.') },
+          { type: 'stack', id: 'mystery-stack', books: [
+            C('rebecca', 'Rebecca', 'Daphne du Maurier', '#3a2a4a', '#d9b860', 26, 240, '#3a2a4a', '#d9b860', 'A new bride is haunted by the memory of the first Mrs de Winter at Manderley.'),
+            C('davinci', 'The Da Vinci Code', 'Dan Brown', '#161616', '#b8302a', 26, 240, '#161616', '#b8302a', 'A murder in the Louvre unspools a centuries-old secret hidden in plain sight.'),
+          ] },
+          { type: 'candle', id: 'candle2' },
+        ],
+      },
+    ];
+    return this._data;
+  }
+
+  enter(e, book) {
+    if (this.state.selected) return;
+    this.setState({ hoveredId: book.id, mood: 'point' });
+  }
+  leave(e, book) {
+    if (this.state.selected) return;
+    this.setState((s) => (s.hoveredId === book.id ? { hoveredId: null } : null));
+  }
+  onStageMove(e) {
+    if (this.state.selected) return;
+    const stage = e.currentTarget.getBoundingClientRect();
+    const sc = this.state.scale || 1;
+    const x = (e.clientX - stage.left) / sc;
+    const y = (e.clientY - stage.top) / sc;
+    this.setState({ target: { x, y } });
+  }
+  onStageLeave() {
+    if (this.state.selected) return;
+    this.setState({ target: null, hoveredId: null, mood: 'idle' });
+  }
+  click(e, book) {
+    this.setState({ selected: book, openPhase: 'closed', mood: 'grab' });
+    requestAnimationFrame(() => requestAnimationFrame(() => this.setState({ openPhase: 'open' })));
+  }
+  doClose() {
+    this.setState({ openPhase: 'closing', armProgress: 0, handVisible: false });
+    clearTimeout(this._t);
+    this._t = setTimeout(() => this.setState({ selected: null, mood: 'idle', hoveredId: null }), 480);
+  }
+
+  computeArm() {
+    const t = this.state.target;
+    const tx = t ? Math.max(120, Math.min(636, t.x)) : 340;
+    const ty = t ? t.y : 360;
+    const elbowX = 760;                      // bend stays just right of the shelf
+    const elbowY = Math.max(250, Math.min(842, ty));
+    const L = 98;
+    const Sx = elbowX - L, Sy = elbowY - L;  // "\\" upper arm: shoulder is up-and-LEFT of the elbow
+    const handTipX = tx;
+    const faX1 = handTipX + 92;              // forearm meets the back of the palm
+    const handTransform = `translate(${handTipX} ${elbowY})`;
+    const uaPath = `M ${Sx} ${Sy} L ${elbowX} ${elbowY}`;
+    const faPath = `M ${faX1} ${elbowY} L ${elbowX} ${elbowY}`;
+    return { elbowX, elbowY, uaPath, faPath, handTransform, Sx, Sy };
+  }
+
+  viewBook(b, accent, category, tabAccent) {
+    const active = this.state.hoveredId === b.id;
+    return {
+      isBook: true, isStack: false, isPlant: false, isCandle: false,
+      title: b.title,
+      wrapStyle: {
+        height: b.h + 'px', width: b.w + 'px', flex: '0 0 auto',
+        background: b.spine, borderRadius: '3px 3px 2px 2px',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        cursor: 'pointer', position: 'relative',
+        boxShadow: active
+          ? '0 12px 22px rgba(60,30,10,0.32), 0 0 0 3px rgba(255,255,255,0.5)'
+          : 'inset -3px 0 6px rgba(0,0,0,0.18), 0 2px 3px rgba(0,0,0,0.12)',
+        transform: active ? 'translateY(-14px) scale(1.04)' : 'translateY(0) scale(1)',
+        transition: 'transform .26s cubic-bezier(.34,1.56,.64,1), box-shadow .2s ease',
+        zIndex: active ? 7 : 1,
+      },
+      titleStyle: {
+        writingMode: 'vertical-rl', textOrientation: 'mixed', whiteSpace: 'nowrap',
+        fontFamily: "'Fredoka'", fontWeight: 600, fontSize: '12px', letterSpacing: '0.3px',
+        color: b.ink, padding: '8px 0', maxHeight: (b.h - 14) + 'px', overflow: 'hidden',
+        pointerEvents: 'none',
+      },
+      onEnter: (e) => this.enter(e, b),
+      onLeave: (e) => this.leave(e, b),
+      onClick: (e) => this.click(e, b),
+    };
+  }
+
+  viewBar(b, accent, category) {
+    const active = this.state.hoveredId === b.id;
+    return {
+      title: b.title,
+      barStyle: {
+        height: b.h + 'px', width: '100%',
+        background: b.spine, borderRadius: '3px',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        cursor: 'pointer', position: 'relative',
+        boxShadow: active
+          ? '0 8px 16px rgba(60,30,10,0.3), 0 0 0 3px rgba(255,255,255,0.5)'
+          : 'inset 0 -2px 4px rgba(0,0,0,0.2), 0 1px 2px rgba(0,0,0,0.12)',
+        transform: active ? 'translateX(10px) scale(1.02)' : 'translateX(0) scale(1)',
+        transition: 'transform .24s cubic-bezier(.34,1.56,.64,1), box-shadow .2s ease',
+        zIndex: active ? 7 : 1,
+      },
+      barTitleStyle: {
+        fontFamily: "'Fredoka'", fontWeight: 600, fontSize: '11px', letterSpacing: '0.3px',
+        color: b.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+        maxWidth: '92%', pointerEvents: 'none',
+      },
+      onEnter: (e) => this.enter(e, b),
+      onLeave: (e) => this.leave(e, b),
+      onClick: (e) => this.click(e, b),
+    };
+  }
+
+  renderVals() {
+    const d = this.data();
+    const shelves = d.map((sh) => ({
+      label: sh.label,
+      tabStyle: {
+        position: 'absolute', right: '-2px', bottom: '14px',
+        background: sh.tabBg, color: sh.tabInk,
+        fontFamily: "'Fredoka'", fontWeight: 600, fontSize: '13px',
+        padding: '6px 16px 6px 14px', borderRadius: '6px 0 0 6px',
+        boxShadow: '0 2px 4px rgba(0,0,0,0.18)', pointerEvents: 'none',
+      },
+      items: sh.items.map((it) => {
+        if (it.type === 'book') {
+          const v = this.viewBook(it, sh.accent, sh.label, sh.tabBg);
+          return v;
+        }
+        if (it.type === 'stack') {
+          return {
+            isBook: false, isStack: true, isPlant: false, isCandle: false,
+            stackStyle: {
+              display: 'flex', flexDirection: 'column-reverse', gap: '3px',
+              width: '252px', flex: '0 0 auto', alignSelf: 'flex-end',
+            },
+            books: it.books.map((b) => this.viewBar(b, sh.accent, sh.label)),
+          };
+        }
+        return {
+          isBook: false, isStack: false,
+          isPlant: it.type === 'plant', isCandle: it.type === 'candle',
+        };
+      }),
+    }));
+
+    const arm = this.computeArm();
+    const armActive = !!this.state.target;
+    const armPathStyle = {
+      opacity: armActive ? 1 : 0,
+      transition: 'opacity .2s ease',
+    };
+    const handStyle = {
+      opacity: armActive ? 1 : 0,
+      transition: 'opacity .16s ease',
+    };
+    // head sits at the shoulder, peeking around the top-right of the shelf; leans out more on lower shelves
+    const peek = Math.max(0, Math.min(1, (arm.elbowY - 360) / 420));
+    const headStyle = {
+      position: 'absolute', left: (arm.Sx - 64) + 'px', top: (arm.Sy - 92) + 'px',
+      width: '226px', height: '230px', zIndex: 10,
+      transform: `rotate(${peek * 14}deg)`, transformOrigin: '34% 88%',
+      transition: 'transform .2s ease-out',
+    };
+
+    // overlay
+    const sel = this.state.selected;
+    const open = this.state.openPhase === 'open';
+    const overlayActive = !!sel;
+    const selView = sel ? {
+      title: sel.title, author: sel.author, blurb: sel.blurb,
+      category: this._catOf(sel), accent: this._accentOf(sel),
+      coverBg: sel.coverBg, coverInk: sel.coverInk,
+    } : { title: '', author: '', blurb: '', category: '', accent: '#000', coverBg: '#000', coverInk: '#fff' };
+
+    const spreadStyle = {
+      position: 'relative', width: '600px', height: '420px',
+      transformStyle: 'preserve-3d', perspective: '1700px',
+      transform: open ? 'translateX(0) scale(1)' : 'translateX(-150px) scale(0.82)',
+      opacity: overlayActive && this.state.openPhase !== 'closing' ? 1 : 0,
+      transition: 'transform .5s cubic-bezier(.34,1.4,.5,1), opacity .42s ease',
+    };
+    const coverStyle = {
+      position: 'absolute', left: '50%', top: 0, width: '300px', height: '420px',
+      transformStyle: 'preserve-3d', transformOrigin: 'left center',
+      transform: open ? 'rotateY(-158deg)' : 'rotateY(0deg)',
+      transition: 'transform .62s cubic-bezier(.5,0,.3,1) .12s',
+      zIndex: 3,
+    };
+    const mittBase = {
+      position: 'absolute', width: '90px', height: '74px', background: '#92E18E',
+      borderRadius: '50% 50% 42% 42%', boxShadow: '0 8px 16px rgba(40,90,40,0.3)',
+      opacity: open ? 1 : 0, zIndex: 6,
+      transition: 'opacity .4s ease .3s, transform .5s cubic-bezier(.34,1.5,.5,1) .3s',
+    };
+    const mittLStyle = { ...mittBase, left: '40px', bottom: '20px',
+      transform: open ? 'rotate(18deg)' : 'translateY(40px) rotate(18deg)',
+      animation: open ? 'mittWaveL 3.6s ease-in-out infinite' : 'none' };
+    const mittRStyle = { ...mittBase, right: '40px', bottom: '20px',
+      transform: open ? 'rotate(-18deg)' : 'translateY(40px) rotate(-18deg)',
+      animation: open ? 'mittWaveR 3.6s ease-in-out infinite' : 'none' };
+    const backdropStyle = {
+      position: 'fixed', inset: 0, zIndex: 50,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      background: this.state.openPhase === 'closing' ? 'rgba(40,24,10,0)' : 'rgba(40,24,10,0.46)',
+      backdropFilter: 'blur(3px)', WebkitBackdropFilter: 'blur(3px)',
+      transition: 'background .42s ease', cursor: 'pointer',
+    };
+
+    return {
+      shelves,
+      stageScale: `scale(${this.state.scale})`,
+      armPathStyle, handStyle, headStyle,
+      uaPath: arm.uaPath, faPath: arm.faPath, handTransform: arm.handTransform,
+      onStageMove: this.onStageMove, onStageLeave: this.onStageLeave,
+      overlayActive, sel: selView,
+      spreadStyle, coverStyle, mittLStyle, mittRStyle, backdropStyle,
+      closeBook: this.closeBook, stop: this.stop,
+    };
+  }
+
+  _catOf(book) {
+    const d = this.data();
+    for (const sh of d) {
+      for (const it of sh.items) {
+        if (it.type === 'book' && it.id === book.id) return sh.label;
+        if (it.type === 'stack' && it.books.some((b) => b.id === book.id)) return sh.label;
+      }
+    }
+    return '';
+  }
+  _accentOf(book) {
+    const d = this.data();
+    for (const sh of d) {
+      for (const it of sh.items) {
+        if (it.type === 'book' && it.id === book.id) return sh.accent;
+        if (it.type === 'stack' && it.books.some((b) => b.id === book.id)) return sh.accent;
+      }
+    }
+    return '#888';
+  }
+}
+</script>
+</body>
+</html>
