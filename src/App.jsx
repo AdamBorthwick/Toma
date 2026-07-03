@@ -2783,15 +2783,38 @@ export default function App() {
     }
   }, [isDbLoaded, showOnboarding]) // eslint-disable-line
 
-  // Header hide/show on scroll direction
+  // Header hide/show: requires 80px scroll movement to toggle, cursor within 70px of top reveals it
   useEffect(() => {
+    let anchor = 0         // scrollY at last state change
+    const THRESHOLD = 80   // px needed to toggle
+
     const onScroll = () => {
       const y = window.scrollY
-      setHeaderVisible(y <= 10 || y < lastScrollY.current)
-      lastScrollY.current = y
+      if (y <= 10) {
+        setHeaderVisible(true)
+        anchor = y
+        return
+      }
+      const delta = y - anchor
+      if (delta > THRESHOLD) {
+        setHeaderVisible(false)
+        anchor = y
+      } else if (delta < -THRESHOLD) {
+        setHeaderVisible(true)
+        anchor = y
+      }
     }
+
+    const onMouseMove = (e) => {
+      if (e.clientY < 70) setHeaderVisible(true)
+    }
+
     window.addEventListener('scroll', onScroll, { passive: true })
-    return () => window.removeEventListener('scroll', onScroll)
+    window.addEventListener('mousemove', onMouseMove)
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      window.removeEventListener('mousemove', onMouseMove)
+    }
   }, [])
 
   // On scroll, re-derive displayTarget from the stored viewport cursor position so the
