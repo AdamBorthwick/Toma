@@ -941,7 +941,7 @@ function PlacedVerticalBook({ book, w, h, active, grabbed, onEnter, onLeave, onC
   const spineFontSize = Math.max(7, Math.min(10, Math.floor((bookH - 8) / (titleLen * 0.62))))
   return (
     <div
-      onMouseEnter={onEnter}
+      onMouseEnter={() => { if (book?.thumbnail) { const img = new Image(); img.src = book.thumbnail }; onEnter?.() }}
       onMouseLeave={onLeave}
       onClick={onClick}
       style={{ width: w, height: h, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', cursor: onClick ? 'pointer' : 'default' }}
@@ -2912,6 +2912,23 @@ export default function App() {
       if (item.thumbnail) { const img = new Image(); img.src = item.thumbnail }
     })
   }, [])
+
+  // Preload covers for every book on the user's shelf so the overlay shows them instantly.
+  useEffect(() => {
+    const seen = new Set()
+    for (const row of shelfContents) {
+      for (const item of row) {
+        const books = item.type === 'vertical-book' ? [item.book] : (item.books ?? [])
+        for (const b of books) {
+          if (b?.thumbnail && !seen.has(b.thumbnail)) {
+            seen.add(b.thumbnail)
+            const img = new Image()
+            img.src = b.thumbnail
+          }
+        }
+      }
+    }
+  }, [shelfContents])
 
   useEffect(() => {
     function updateScale() {
