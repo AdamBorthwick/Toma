@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, Fragment } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import './App.css'
 import { getMyIp, getOrCreateUser, loadShelfByUserId, loadShelfByShareId, loadReviews, persistShelf, getShareId, saveReview, deleteReview, setUsername as saveUsername, getUsername, loadInventory, addInventoryBook, addInventoryStack, addInventoryDecor, removeInventoryItem } from './db.js'
 
@@ -2437,20 +2437,20 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
             <line x1="12"  y1="24"  x2="34"  y2="-62"  stroke="#72FF5D" strokeWidth="18" strokeLinecap="round" />
           </svg>
 
-          {/* Left click zone — previous page */}
+          {/* Left click zone — previous page (bottom strip only, clears content area) */}
           <div
             onMouseEnter={() => setHoverArea('left')}
             onMouseLeave={() => setHoverArea(null)}
             onClick={e => { e.stopPropagation(); if (overlayPage > 0 && !turnerVisible) goToPage(overlayPage - 1) }}
-            style={{ position: 'absolute', left: 0, top: 0, width: '50%', height: '100%', zIndex: 25, cursor: overlayPage > 0 && !turnerVisible ? 'pointer' : 'default', pointerEvents: (overlayPage > 0 && !(isViewOnly && overlayPage === 1)) ? 'auto' : 'none' }}
+            style={{ position: 'absolute', left: 0, bottom: 0, width: '50%', height: '26%', zIndex: 25, cursor: overlayPage > 0 && !turnerVisible ? 'pointer' : 'default', pointerEvents: overlayPage > 0 ? 'auto' : 'none' }}
           />
 
-          {/* Right click zone — next page */}
+          {/* Right click zone — next page (bottom strip only) */}
           <div
             onMouseEnter={() => setHoverArea('right')}
             onMouseLeave={() => setHoverArea(null)}
             onClick={e => { e.stopPropagation(); if (overlayPage < 2 && !turnerVisible) goToPage(overlayPage + 1) }}
-            style={{ position: 'absolute', right: 0, top: 0, width: '50%', height: '100%', zIndex: 25, pointerEvents: overlayPage < 2 && !turnerVisible && !(overlayPage === 1 && reviewMode === 'edit') ? 'auto' : 'none', cursor: overlayPage < 2 && !turnerVisible ? 'pointer' : 'default' }}
+            style={{ position: 'absolute', right: 0, bottom: 0, width: '50%', height: '40%', zIndex: 25, pointerEvents: overlayPage < 2 && !turnerVisible && !(overlayPage === 1 && reviewMode === 'edit') ? 'auto' : 'none', cursor: overlayPage < 2 && !turnerVisible ? 'pointer' : 'default' }}
           />
 
           {/* Arrow indicators — above all overlays so they're always visible */}
@@ -2534,7 +2534,7 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
 
 // ─── TitleScreen ──────────────────────────────────────────────────────────────
 
-function TitleScreen({ onDismiss, onReveal }) {
+function TitleScreen({ onDismiss }) {
   const faceRef = useRef(null)
   const [irisOff, setIrisOff] = useState({ x: 0, y: 0 })
   const [exitPhase, setExitPhase] = useState(null) // null | 'duck' | 'reveal'
@@ -2565,7 +2565,7 @@ function TitleScreen({ onDismiss, onReveal }) {
   function handleClick() {
     if (exitPhase) return
     setExitPhase('duck')
-    setTimeout(() => { setExitPhase('reveal'); onReveal() }, 420)
+    setTimeout(() => setExitPhase('reveal'), 420)
     setTimeout(onDismiss, 1050)
   }
 
@@ -2611,7 +2611,7 @@ function TitleScreen({ onDismiss, onReveal }) {
         style={{ position: 'absolute', bottom: 0, left: 0, zIndex: 0, display: 'block', overflow: 'visible', pointerEvents: 'none' }}
       >
         <ellipse cx="640" cy="280" rx="1160" ry="220" fill="#1A3280" />
-        <ellipse cx="640" cy="310" rx="915" ry="210" fill="#223152" />
+        <ellipse cx="640" cy="310" rx="1100" ry="210" fill="#223152" />
       </svg>
 
       {/* z:1 — body blob (behind title text), breathes */}
@@ -2784,7 +2784,6 @@ function OnboardingOverlay({ onSubmit }) {
 
 export default function App() {
   const [showTitle, setShowTitle] = useState(true)
-  const [revealing, setRevealing] = useState(false)
   const [hoveredId, setHoveredId] = useState(null)
   const [target, setTarget] = useState(null)
   const [displayTarget, setDisplayTarget] = useState(null)
@@ -3971,7 +3970,6 @@ export default function App() {
   const stageHeight = Math.max(960, bookcaseBottom + 140)
 
   return (
-    <Fragment>
     <div
       ref={containerRef}
       onContextMenu={e => e.preventDefault()}
@@ -3981,8 +3979,6 @@ export default function App() {
         overflowX: 'hidden',
         background: '#223152',
         fontFamily: "'Manrope', sans-serif",
-        transform: showTitle && !revealing ? 'translateY(100vh)' : 'translateY(0)',
-        transition: revealing ? 'transform 0.6s cubic-bezier(.7,0,.3,1)' : 'none',
       }}>
       <div
         ref={stageRef}
@@ -4432,8 +4428,7 @@ export default function App() {
         />
       )}
 
+      {showTitle && <TitleScreen onDismiss={() => setShowTitle(false)} />}
     </div>
-    {showTitle && <TitleScreen onDismiss={() => setShowTitle(false)} onReveal={() => setRevealing(true)} />}
-    </Fragment>
   )
 }
