@@ -2279,8 +2279,10 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
                       e.stopPropagation()
                       if (!viewerUserId || !selected) return
                       await addInventoryBook(viewerUserId, selected)
-                      window.location.href = window.location.origin + window.location.pathname
+                      window.location.href = window.location.origin + window.location.pathname + '?skipIntro=1&edit=1'
                     }}
+                    onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.04)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(37,76,164,0.45)' }}
+                    onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = '' }}
                     style={{
                       alignSelf: 'flex-start',
                       background: '#254CA4', color: '#FDF8EF',
@@ -2289,6 +2291,7 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
                       fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 13,
                       cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6,
                       marginTop: 4,
+                      transition: 'transform 0.15s ease, box-shadow 0.15s ease',
                     }}
                   >
                     Add to my shelf →
@@ -2826,13 +2829,17 @@ export default function App() {
   }
 
   // ── DB / persistence ───────────────────────────────────────────────────────
+  const _urlParams  = new URLSearchParams(window.location.search)
+  const _skipIntro  = _urlParams.get('skipIntro') === '1'
+  const _startEdit  = _urlParams.get('edit') === '1'
+
   const [userId, setUserId]                 = useState(null)
   const [shelfName, setShelfName]           = useState('My Shelf')
   const [shareId, setShareId]               = useState(null)
   const [isViewOnly, setIsViewOnly]         = useState(false)
   const [isDbLoaded, setIsDbLoaded]         = useState(false)
   const [showOnboarding, setShowOnboarding] = useState(false)
-  const [bookcaseRevealed, setBookcaseRevealed] = useState(false)
+  const [bookcaseRevealed, setBookcaseRevealed] = useState(_skipIntro)
   const [poofActive, setPoofActive]             = useState(false)
   const [headIntroTop, setHeadIntroTop]         = useState(null)
   const [headIntroLeft, setHeadIntroLeft]       = useState(null)
@@ -2967,6 +2974,8 @@ export default function App() {
         setUsername(uname ?? '')
         setInventory(inv)
         if (isNewUser) setShowOnboarding(true)
+        if (_startEdit) { isEditModeRef.current = true; setIsEditMode(true) }
+        if (_skipIntro || _startEdit) window.history.replaceState({}, '', window.location.pathname)
       })
     }
   }, [])
@@ -4036,7 +4045,7 @@ export default function App() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, pointerEvents: 'auto' }}>
               {isViewOnly && (
                 <button
-                  onClick={() => { window.location.href = window.location.origin + window.location.pathname }}
+                  onClick={() => { window.location.href = window.location.origin + window.location.pathname + '?skipIntro=1' }}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#254CA4', color: '#FDF8EF', border: 'none', borderRadius: 10, padding: '7px 14px', fontSize: 13, fontFamily: "'Manrope',sans-serif", fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
                 >
                   {viewerHasOwnShelf ? 'My Collection' : 'Create your shelf'}
