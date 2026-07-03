@@ -1151,7 +1151,7 @@ function SavedShelfRow({ shelf, items, onBookClick, onEditClick, grabbedBookId }
 
 // ─── SidePanelButtons ─────────────────────────────────────────────────────────
 
-function SidePanelButtons({ editDragging, onBook, onDecor }) {
+function SidePanelButtons({ editDragging, onBook, onDecor, isEditMode }) {
   const btnBase = {
     width: 88, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
     padding: '16px 8px', border: 'none', borderRadius: 16, cursor: 'pointer',
@@ -1162,12 +1162,13 @@ function SidePanelButtons({ editDragging, onBook, onDecor }) {
   const offHover = e => { e.currentTarget.style.transform = '' }
   return (
     <div style={{
-      position: 'fixed', right: 24, top: '50%', transform: 'translateY(-50%)',
+      position: 'fixed', right: 24, top: '50%',
       display: 'flex', flexDirection: 'column', gap: 14,
       zIndex: 48,
-      opacity: editDragging ? 0 : 1,
-      transition: 'opacity 0.2s ease',
-      pointerEvents: editDragging ? 'none' : 'auto',
+      transform: isEditMode ? 'translateY(-50%) translateX(0)' : 'translateY(-50%) translateX(130px)',
+      opacity: isEditMode && !editDragging ? 1 : 0,
+      transition: 'transform 0.4s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease',
+      pointerEvents: isEditMode && !editDragging ? 'auto' : 'none',
     }}>
       <button onClick={onBook} style={{ ...btnBase, background: '#254CA4', color: '#FDF8EF' }}
         onMouseEnter={onHover} onMouseLeave={offHover}>
@@ -1195,7 +1196,7 @@ function BookPreviewModal({ book, isSelected, onToggle, onClose }) {
   }, [])
 
   useEffect(() => {
-    fetch(`https://www.googleapis.com/books/v1/volumes/${book.id}?key=AIzaSyDLRNBvtGe5-1487u6kW9UF4eBPutldcgc`)
+    fetch(`https://www.googleapis.com/books/v1/volumes/${book.id}`)
       .then(r => r.json())
       .then(data => {
         const vi = data.volumeInfo ?? {}
@@ -2581,6 +2582,8 @@ export default function App() {
   const [deleteBtnRect, setDeleteBtnRect] = useState(null)
   const [showShareModal, setShowShareModal] = useState(false)
   const [linkCopied, setLinkCopied]         = useState(false)
+  const [headerVisible, setHeaderVisible]   = useState(true)
+  const lastScrollY = useRef(0)
   const reviewsRef   = useRef(new Map())
   const saveTimerRef = useRef(null)
 
@@ -2779,6 +2782,17 @@ export default function App() {
       document.body.style.overflow = ''
     }
   }, [isDbLoaded, showOnboarding]) // eslint-disable-line
+
+  // Header hide/show on scroll direction
+  useEffect(() => {
+    const onScroll = () => {
+      const y = window.scrollY
+      setHeaderVisible(y <= 10 || y < lastScrollY.current)
+      lastScrollY.current = y
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
 
   // On scroll, re-derive displayTarget from the stored viewport cursor position so the
   // arm keeps pointing at the correct stage-local spot without waiting for a mousemove.
@@ -3637,8 +3651,8 @@ export default function App() {
           <div style={{ position: 'absolute', left: -300, top: bookcaseBottom - 90, width: 1680, height: 180, borderRadius: '50%', background: '#19243D', opacity: 0.4, zIndex: 0 }} />
           <div style={{ position: 'absolute', left: -100, top: bookcaseBottom - 45, width: 1280, height: 90, borderRadius: '50%', background: '#19243D', opacity: 0.6, zIndex: 0 }} />
 
-          {/* header bar — single row, both buttons vertically centered */}
-          <div style={{ position: 'absolute', top: 14, left: 0, right: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 16px', zIndex: 9, pointerEvents: 'none' }}>
+          {/* header bar — fixed, hides on scroll down, shows on scroll up */}
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px 10px', zIndex: 9, pointerEvents: 'none', transform: headerVisible ? 'translateY(0)' : 'translateY(-120%)', transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)' }}>
             <div style={{ pointerEvents: 'auto' }}>
               {!isViewOnly && (
                 <button
@@ -4026,11 +4040,6 @@ export default function App() {
             )
           })()}
 
-          <SidePanelButtons
-            editDragging={editDragging}
-            onBook={() => { setShowBookPanel(true); setShowDecorPanel(false); setStackBooks([]) }}
-            onDecor={() => { setShowDecorPanel(true); setShowBookPanel(false) }}
-          />
           <BookAddPanel
             isOpen={showBookPanel}
             selectedBooks={stackBooks}
@@ -4046,21 +4055,29 @@ export default function App() {
         </>
       )}
 
-      {/* Construction tape corners — fixed, indicate build mode */}
+      {/* SidePanelButtons — always mounted so it can animate in/out */}
+      {bookcaseRevealed && !isViewOnly && (
+        <SidePanelButtons
+          isEditMode={isEditMode}
+          editDragging={editDragging}
+          onBook={() => { setShowBookPanel(true); setShowDecorPanel(false); setStackBooks([]) }}
+          onDecor={() => { setShowDecorPanel(true); setShowBookPanel(false) }}
+        />
+      )}
+
+      {/* Construction tape corners — roll in from each corner when build mode is active */}
       <div style={{
-        position: 'fixed', bottom: -12, left: -72, width: 260, height: 44,
-        background: 'repeating-linear-gradient(-45deg, #FFD700, #FFD700 10px, #1C1C1C 10px, #1C1C1C 20px)',
-        borderTop: '2.5px solid rgba(0,0,0,0.28)', borderBottom: '2.5px solid rgba(0,0,0,0.28)',
-        transform: isEditMode ? 'translateX(0) rotate(45deg)' : 'translateX(-320px) rotate(45deg)',
-        transition: 'transform 0.5s cubic-bezier(0.22, 1, 0.36, 1)',
+        position: 'fixed', bottom: 20, left: -180, width: 420, height: 28,
+        background: 'repeating-linear-gradient(90deg, #FFD700, #FFD700 10px, #1C1C1C 10px, #1C1C1C 20px)',
+        transform: isEditMode ? 'translateX(0) rotate(45deg)' : 'translateX(-420px) rotate(45deg)',
+        transition: 'transform 0.55s cubic-bezier(0.22, 1, 0.36, 1)',
         pointerEvents: 'none', zIndex: 9997,
       }}/>
       <div style={{
-        position: 'fixed', bottom: -12, right: -72, width: 260, height: 44,
-        background: 'repeating-linear-gradient(-45deg, #FFD700, #FFD700 10px, #1C1C1C 10px, #1C1C1C 20px)',
-        borderTop: '2.5px solid rgba(0,0,0,0.28)', borderBottom: '2.5px solid rgba(0,0,0,0.28)',
-        transform: isEditMode ? 'translateX(0) rotate(-45deg)' : 'translateX(320px) rotate(-45deg)',
-        transition: 'transform 0.5s cubic-bezier(0.22, 1, 0.36, 1)',
+        position: 'fixed', bottom: 20, right: -180, width: 420, height: 28,
+        background: 'repeating-linear-gradient(90deg, #FFD700, #FFD700 10px, #1C1C1C 10px, #1C1C1C 20px)',
+        transform: isEditMode ? 'translateX(0) rotate(-45deg)' : 'translateX(420px) rotate(-45deg)',
+        transition: 'transform 0.55s cubic-bezier(0.22, 1, 0.36, 1)',
         pointerEvents: 'none', zIndex: 9997,
       }}/>
     </div>
