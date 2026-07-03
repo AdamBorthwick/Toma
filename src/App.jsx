@@ -2439,7 +2439,7 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
             onMouseEnter={() => setHoverArea('left')}
             onMouseLeave={() => setHoverArea(null)}
             onClick={e => { e.stopPropagation(); if (overlayPage > 0 && !turnerVisible) goToPage(overlayPage - 1) }}
-            style={{ position: 'absolute', left: 0, top: 0, width: '50%', height: '100%', zIndex: 25, cursor: overlayPage > 0 && !turnerVisible ? 'pointer' : 'default' }}
+            style={{ position: 'absolute', left: 0, top: 0, width: '50%', height: '100%', zIndex: 25, cursor: overlayPage > 0 && !turnerVisible ? 'pointer' : 'default', pointerEvents: overlayPage > 0 ? 'auto' : 'none' }}
           />
 
           {/* Right click zone — next page */}
@@ -2585,7 +2585,7 @@ function TitleScreen({ onDismiss }) {
     position: 'absolute', bottom: 0, left: '50%',
     width: 'min(100vw, 96vh)',
     transform: ducking
-      ? 'translateX(-50%) translateY(90%)'
+      ? 'translateX(-50%) translateY(110%)'
       : isNear
         ? 'translateX(-50%) translateY(74%)'
         : 'translateX(-50%) translateY(66%)',
@@ -2595,10 +2595,9 @@ function TitleScreen({ onDismiss }) {
   const breathStyle = { animation: 'tomaBreath 3.5s ease-in-out infinite', transformOrigin: 'center bottom' }
 
   return (
-    <div onClick={handleClick} style={{
+    <div style={{
       position: 'fixed', inset: 0, zIndex: 99999,
       background: '#254CA4',
-      cursor: 'pointer',
       transform: exitPhase === 'reveal' ? 'translateY(-100%)' : 'translateY(0)',
       transition: exitPhase === 'reveal' ? 'transform 0.6s cubic-bezier(.7,0,.3,1)' : 'none',
       overflow: 'hidden',
@@ -2608,8 +2607,8 @@ function TitleScreen({ onDismiss }) {
       <svg width="100%" height="160" viewBox="0 0 1280 160"
         style={{ position: 'absolute', bottom: 0, left: 0, zIndex: 0, display: 'block', overflow: 'visible', pointerEvents: 'none' }}
       >
-        <ellipse cx="640" cy="280" rx="980" ry="220" fill="#1A3280" />
-        <ellipse cx="640" cy="310" rx="850" ry="220" fill="#0F1E4A" />
+        <ellipse cx="640" cy="280" rx="1160" ry="220" fill="#1A3280" />
+        <ellipse cx="640" cy="310" rx="915" ry="210" fill="#223152" />
       </svg>
 
       {/* z:1 — body blob (behind title text), breathes */}
