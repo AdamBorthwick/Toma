@@ -225,3 +225,66 @@ export async function getUsername(userId) {
   const { data } = await supabase.from('users').select('username').eq('id', userId).single()
   return data?.username ?? null
 }
+
+// ── Inventory ──────────────────────────────────────────────────────────────────
+
+export async function loadInventory(userId) {
+  const { data } = await supabase
+    .from('inventory_items')
+    .select('id, item_type, book_id, book_ids, decor_type, books(*)')
+    .eq('user_id', userId)
+    .order('added_at')
+
+  const allStackBookIds = [...new Set(
+    (data ?? []).filter(r => r.item_type === 'stack').flatMap(r => r.book_ids ?? [])
+  )]
+  let stackBooksById = new Map()
+  if (allStackBookIds.length) {
+    const { data: bRows } = await supabase.from('books').select('*').in('id', allStackBookIds)
+    stackBooksById = new Map((bRows ?? []).map(b => [b.id, rowToBook(b)]))
+  }
+
+  return (data ?? []).map(r => ({
+    id: r.id,
+    type: r.item_type,
+    book: r.item_type === 'book' ? rowToBook(r.books) : null,
+    books: r.item_type === 'stack'
+      ? (r.book_ids ?? []).map(id => stackBooksById.get(id)).filter(Boolean)
+      : null,
+    decorType: r.decor_type ?? null,
+  }))
+}
+
+export async function addInventoryBook(userId, book) {
+  await supabase.from('books').upsert(bookToRow(book), { onConflict: 'id' })
+  const { data } = await supabase
+    .from('inventory_items')
+    .insert({ user_id: userId, item_type: 'book', book_id: book.id })
+    .select('id').single()
+  return data.id
+}
+
+export async function addInventoryStack(userId, books) {
+  await supabase.from('books').upsert(books.map(bookToRow), { onConflict: 'id' })
+  const { data } = await supabase
+    .from('inventory_items')
+    .insert({ user_id: userId, item_type: 'stack', book_ids: books.map(b => b.id) })
+    .select('id').single()
+  return data.id
+}
+
+export async function addInventoryDecor(userId, decorType) {
+  const { data } = await supabase
+    .from('inventory_items')
+    .insert({ user_id: userId, item_type: 'decor', decor_type: decorType })
+    .select('id').single()
+  return data.id
+}
+
+export async function removeInventoryItem(userId, inventoryItemId) {
+  await supabase
+    .from('inventory_items')
+    .delete()
+    .eq('id', inventoryItemId)
+    .eq('user_id', userId)
+}
