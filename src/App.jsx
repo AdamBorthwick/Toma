@@ -2838,7 +2838,7 @@ export default function App() {
   const [isViewOnly, setIsViewOnly]         = useState(false)
   const [isDbLoaded, setIsDbLoaded]         = useState(false)
   const [showOnboarding, setShowOnboarding] = useState(false)
-  const [bookcaseRevealed, setBookcaseRevealed] = useState(_skipIntro)
+  const [bookcaseRevealed, setBookcaseRevealed] = useState(false)
   const [poofActive, setPoofActive]             = useState(false)
   const [headIntroTop, setHeadIntroTop]         = useState(null)
   const [headIntroLeft, setHeadIntroLeft]       = useState(null)
@@ -3020,10 +3020,17 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'instant' })
     document.body.style.overflow = 'hidden'
 
-    const startBelow = bookcaseBottom + 100
-
     setPoofActive(true)
 
+    // Smoke-only path: visiting someone else's shelf, or returning from a view-only shelf.
+    // Skip the head animation — just poof, reveal, clear.
+    if (_skipIntro || isViewOnly) {
+      const tReveal = setTimeout(() => setBookcaseRevealed(true), 450)
+      const tClear  = setTimeout(() => { setPoofActive(false); document.body.style.overflow = '' }, 900)
+      return () => { clearTimeout(tReveal); clearTimeout(tClear) }
+    }
+
+    const startBelow = bookcaseBottom + 100
     let emergeRaf = null
 
     // t=565ms: reveal bookcase under smoke; head parked below shelf at top-of-shelf X (580)
