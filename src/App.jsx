@@ -843,6 +843,12 @@ function CaveBackground({ stageHeight, bookcaseBottom }) {
         style={{ position: 'absolute', left: 0, top: 0, zIndex: 0, pointerEvents: 'none', overflow: 'visible' }}
         xmlns="http://www.w3.org/2000/svg"
       >
+      {/* ── Cave ceiling — layered rock strata, mostly flat with organic drops ── */}
+      {/* back layer: deeper shadow, bumps offset from main layer */}
+      <path d="M0,0 H1080 V20 Q920,30 800,20 L560,20 Q460,34 360,20 L160,20 Q80,26 0,20 Z" fill="#151F35" />
+      {/* main rock surface: long flat zones with 4 asymmetric drops */}
+      <path d="M0,0 H1080 V22 L1040,22 Q1000,30 960,22 L880,22 Q828,56 778,22 L660,22 Q572,36 482,22 L298,22 Q240,46 180,22 L0,22 Z" fill="#19243D" />
+
       {/* ── Stalactites (ceiling, left cluster) ── */}
       {/* s1 largest, partially off-left */}
       <g transform="translate(-25,0) scale(0.85)"><path d={s1} fill="#19243D" /></g>
@@ -1153,7 +1159,30 @@ function SavedShelfRow({ shelf, items, onBookClick, onEditClick, grabbedBookId }
 
 // ─── SidePanelButtons ─────────────────────────────────────────────────────────
 
-function SidePanelButtons({ editDragging, onBook, onDecor, isEditMode, inventory = [], onInventoryItemPlace }) {
+function SidePanelButtons({ editDragging, onBook, onDecor, isEditMode, inventory = [], onInventoryItemPlace, flashInventory = false }) {
+  const [invHover, setInvHover] = useState(false)
+
+  useEffect(() => {
+    if (document.getElementById('inv-flash-kf')) return
+    const s = document.createElement('style')
+    s.id = 'inv-flash-kf'
+    s.textContent = `
+      @keyframes invShake {
+        0%   { transform: rotate(0deg); }
+        20%  { transform: rotate(-2deg); }
+        40%  { transform: rotate(2deg); }
+        60%  { transform: rotate(-1.5deg); }
+        80%  { transform: rotate(1deg); }
+        100% { transform: rotate(0deg); }
+      }
+      @keyframes invPulse {
+        0%, 100% { background: rgba(253,248,239,0.13); color: rgba(253,248,239,0.55); }
+        50%       { background: rgba(114,255,93,0.18);  color: rgba(114,255,93,0.9); }
+      }
+    `
+    document.head.appendChild(s)
+  }, [])
+
   const btnBase = {
     width: 88, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
     padding: '16px 8px', border: 'none', borderRadius: 16, cursor: 'pointer',
@@ -1184,58 +1213,70 @@ function SidePanelButtons({ editDragging, onBook, onDecor, isEditMode, inventory
       </button>
       {inventory.length > 0 && (() => {
         const topItem = inventory[0]
+        const stackFirst = topItem.type === 'stack' ? topItem.books?.[0] : null
+        const stackRest  = topItem.type === 'stack' ? (topItem.books?.length ?? 1) - 1 : 0
         return (
           <div
             onClick={() => onInventoryItemPlace(topItem)}
-            title={topItem.type === 'book' ? topItem.book?.title : topItem.type === 'stack' ? `Stack of ${topItem.books?.length}` : topItem.decorType}
+            onMouseEnter={() => setInvHover(true)}
+            onMouseLeave={() => setInvHover(false)}
+            title={topItem.type === 'book' ? topItem.book?.title : topItem.type === 'stack' ? `${stackFirst?.title ?? 'Stack'} +${stackRest}` : topItem.decorType}
             style={{
               width: 88, height: 84,
-              position: 'relative',
-              background: 'rgba(253,248,239,0.25)',
-              borderRadius: 12,
+              background: 'rgba(253,248,239,0.13)',
+              color: 'rgba(253,248,239,0.55)',
+              outline: '2px dashed currentColor',
+              outlineOffset: '5px',
+              transformOrigin: 'center center',
+              animation: flashInventory
+                ? 'invShake 0.7s ease-in-out 0.6s 2, invPulse 1.2s ease-in-out 0.4s 3'
+                : 'none',
+              borderRadius: 10,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               cursor: 'pointer', flexShrink: 0,
             }}
           >
-            <svg
-              style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
-              width="88" height="84" viewBox="0 0 88 84"
-            >
-              <rect
-                x="1.5" y="1.5" width="85" height="81" rx="10.5" ry="10.5"
-                fill="none" stroke="rgba(253,248,239,0.65)" strokeWidth="2"
-                strokeDasharray="12 12"
-              />
-            </svg>
-            {topItem.type === 'book' && (
-              <div style={{
-                width: 16, height: 44, borderRadius: 2,
-                background: topItem.book?.spine ?? '#5A4A3A',
-                boxShadow: '3px 4px 14px rgba(0,0,0,0.55), -1px 0 0 rgba(0,0,0,0.2)',
-              }} />
-            )}
-            {topItem.type === 'stack' && (
-              <div style={{ display: 'flex', gap: 3, alignItems: 'flex-end' }}>
-                {(topItem.books ?? []).slice(0, 4).map((b, i) => (
-                  <div key={i} style={{
-                    width: 10,
-                    height: [38, 44, 36, 42][i] ?? 38,
-                    borderRadius: 2,
-                    background: b.spine ?? '#5A4A3A',
-                    boxShadow: '1px 3px 8px rgba(0,0,0,0.5)',
-                  }} />
-                ))}
-              </div>
-            )}
-            {topItem.type === 'decor' && (
-              <div style={{
-                width: 32, height: 32, borderRadius: 8,
-                background: 'rgba(255,255,255,0.2)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 16, color: '#FDF8EF',
-                boxShadow: '0 3px 10px rgba(0,0,0,0.45)',
-              }}>✦</div>
-            )}
+            {/* Content wrapper — pops out on hover */}
+            <div style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4,
+              width: '100%', height: '100%',
+              transform: invHover ? 'scale(1.14) translateY(-3px)' : 'scale(1) translateY(0)',
+              transition: 'transform 0.22s cubic-bezier(0.34,1.6,0.5,1)',
+            }}>
+              {topItem.type === 'book' && (<>
+                <div style={{
+                  width: 16, height: 38, borderRadius: 2,
+                  background: topItem.book?.spine ?? '#5A4A3A',
+                  boxShadow: '3px 4px 14px rgba(0,0,0,0.55), -1px 0 0 rgba(0,0,0,0.2)',
+                }} />
+                <div style={{
+                  fontSize: 8, fontWeight: 700, color: '#FDF8EF', opacity: 0.85,
+                  maxWidth: 72, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  textAlign: 'center', fontFamily: "'Manrope', sans-serif", lineHeight: 1,
+                }}>{topItem.book?.title ?? ''}</div>
+              </>)}
+              {topItem.type === 'stack' && (<>
+                <div style={{
+                  width: 16, height: 38, borderRadius: 2,
+                  background: stackFirst?.spine ?? '#5A4A3A',
+                  boxShadow: '3px 4px 14px rgba(0,0,0,0.55), -1px 0 0 rgba(0,0,0,0.2)',
+                }} />
+                <div style={{
+                  fontSize: 8, fontWeight: 700, color: '#FDF8EF', opacity: 0.85,
+                  maxWidth: 72, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  textAlign: 'center', fontFamily: "'Manrope', sans-serif", lineHeight: 1,
+                }}>{(stackFirst?.title ?? 'Stack')}{stackRest > 0 ? ` +${stackRest}` : ''}</div>
+              </>)}
+              {topItem.type === 'decor' && (() => {
+                const dt = topItem.decorType
+                if (dt === 'flower')  return <PlacedFlower    w={26} />
+                if (dt === 'flower2') return <PlacedFlower2   w={26} />
+                if (dt === 'coffee')  return <PlacedCoffeeCup w={26} />
+                if (dt === 'light')   return <PlacedLight     w={26} />
+                if (dt === 'clock')   return <PlacedClock      w={26} />
+                return null
+              })()}
+            </div>
           </div>
         )
       })()}
@@ -2145,7 +2186,7 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
       {reviewMode === 'view' && !reviewText && reviewRating === 0 && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
           {isInteractive
-            ? <button onClick={e => { e.stopPropagation(); setDraftText(''); setDraftRating(0); setReviewMode('edit') }} style={{ fontFamily: "'Manrope', sans-serif", fontSize: 13, fontWeight: 600, color: '#FDF8EF', background: '#254CA4', border: 'none', borderRadius: 8, padding: '9px 20px', cursor: 'pointer', pointerEvents: 'auto' }}>Write a Review</button>
+            ? <button onClick={e => { e.stopPropagation(); setDraftText(''); setDraftRating(0); setReviewMode('edit') }} onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.04)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(37,76,164,0.45)' }} onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = '' }} style={{ fontFamily: "'Manrope', sans-serif", fontSize: 13, fontWeight: 600, color: '#FDF8EF', background: '#254CA4', border: 'none', borderRadius: 8, padding: '9px 20px', cursor: 'pointer', pointerEvents: 'auto', transition: 'transform 0.15s ease, box-shadow 0.15s ease' }}>Write a Review</button>
             : isViewOnly
               ? <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: 13, fontWeight: 500, color: '#8888A0', fontStyle: 'italic', textAlign: 'center' }}>{ownerName ? `${ownerName} hasn't left a review` : 'No review yet'}</div>
               : <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: 13, fontWeight: 600, color: '#FDF8EF', background: '#254CA4', borderRadius: 8, padding: '9px 20px' }}>Write a Review</div>
@@ -2534,7 +2575,34 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
 
 // ─── TitleScreen ──────────────────────────────────────────────────────────────
 
-function TitleScreen({ onDismiss }) {
+function StalactitePreview({ scale, viewOffset = 0, clipH = 320 }) {
+  const _s0 = "M74.6155 253.62C74.152 255.716 71.1744 255.698 70.7163 253.601C64.4127 224.737 44.6766 134.49 40.2041 115.5C34.8626 92.8196 33.9438 79.4779 26.2041 57.5C19.8108 39.3453 5.1536 11.9488 0.247626 2.96654C-0.48442 1.62625 0.495335 0 2.02251 0L143.976 0C145.328 0 146.294 1.2994 145.886 2.58796C143.193 11.1005 134.42 38.7573 128.204 57.5C120.779 79.8898 113.318 98.0528 105.204 124.5C98.4841 146.404 80.5716 226.683 74.6155 253.62Z"
+  const _s1 = "M102.859 352.074C102.566 354.346 99.284 354.461 98.8697 352.208C91.6238 312.81 69.6964 194.195 62.964 164.771C54.8561 129.337 53.3026 105.384 40.7073 74.3905C30.1389 48.3849 7.39126 13.6463 0.343527 3.13907C-0.55398 1.801 0.412754 0 2.02395 0L200.827 0C202.35 0 203.341 1.59451 202.613 2.9323C194.636 17.5864 158.975 84.0543 142.253 131.4C126.427 176.211 108.321 309.864 102.859 352.074Z"
+  const _s2 = "M73.7044 253.692C73.4097 255.807 70.478 256.063 69.8465 254.022C61.9545 228.526 38.8548 152.966 35.4606 131.25C31.3562 104.99 36.0402 89.1247 28.9832 63.5C23.1289 42.2428 5.96735 12.5552 0.287334 3.05267C-0.51702 1.70701 0.4639 0 2.03163 0L143.449 0C144.897 0 145.88 1.46285 145.297 2.7879C140.344 14.0404 121.938 56.3061 117.438 73C112.224 92.3399 99.4656 100.611 94.438 120C90.2288 136.233 77.6787 225.168 73.7044 253.692Z"
+  const _s3 = "M74.5829 252.363C74.2718 254.539 71.2002 254.656 70.6747 252.521C64.0989 225.813 46.4234 153.287 43.0963 132C38.992 105.74 29.1533 92.6247 22.0963 67C16.1218 45.306 3.77836 12.3229 0.132101 2.71448C-0.366065 1.40174 0.606211 0 2.0103 0L142.906 0C144.603 0 145.544 1.98228 144.471 3.29764C135.402 14.4146 106.483 50.7295 102.096 67C96.8825 86.3398 100.124 103.611 95.0963 123C90.962 138.944 78.781 222.998 74.5829 252.363Z"
+  const _s4 = "M69.5201 263.558C69.2602 265.952 65.7368 265.931 65.4975 263.535C61.3213 221.715 51.5772 125.42 48.3856 105C44.2813 78.7402 41.4427 67.6247 34.3856 42C29.4594 24.1127 11.4324 10.7323 0.995039 4.28278C-0.813389 3.1653 0.00824489 0 2.13408 0L136.399 0C138.215 0 139.133 2.238 137.842 3.51429C129.142 12.1132 107.529 34.6311 103.386 50C98.1718 69.3399 93.4132 93.6109 88.3856 113C84.4823 128.053 74.009 222.203 69.5201 263.558Z"
+  return (
+    <div style={{
+      position: 'absolute', bottom: 0, left: '50%',
+      transform: 'translateX(-50%)',
+      width: 1080 * scale, height: clipH * scale,
+      overflow: 'hidden', pointerEvents: 'none', zIndex: 0,
+    }}>
+      <svg width={1080 * scale} height={clipH * scale}
+           viewBox={`0 ${viewOffset} 1080 ${clipH}`}
+           style={{ display: 'block' }}>
+        <path d={_s1} fill="#19243D" transform="translate(-25,0) scale(0.85)" />
+        <path d={_s0} fill="#19243D" transform="translate(105,0)" />
+        <path d={_s3} fill="#19243D" transform="translate(220,0) scale(0.65)" />
+        <path d={_s2} fill="#19243D" transform="translate(840,0) scale(0.8)" />
+        <path d={_s4} fill="#19243D" transform="translate(940,0) scale(0.9)" />
+        <path d={_s1} fill="#19243D" transform="translate(1015,0) scale(0.75)" />
+      </svg>
+    </div>
+  )
+}
+
+function TitleScreen({ onDismiss, onReveal, scale }) {
   const faceRef = useRef(null)
   const [irisOff, setIrisOff] = useState({ x: 0, y: 0 })
   const [exitPhase, setExitPhase] = useState(null) // null | 'duck' | 'reveal'
@@ -2565,8 +2633,8 @@ function TitleScreen({ onDismiss }) {
   function handleClick() {
     if (exitPhase) return
     setExitPhase('duck')
-    setTimeout(() => setExitPhase('reveal'), 420)
-    setTimeout(onDismiss, 1050)
+    setTimeout(() => { setExitPhase('reveal'); onReveal() }, 420)
+    setTimeout(onDismiss, 750)
   }
 
   const LETTERS = [
@@ -2599,10 +2667,8 @@ function TitleScreen({ onDismiss }) {
 
   return (
     <div style={{
-      position: 'fixed', inset: 0, zIndex: 99999,
+      height: '100vh', position: 'relative',
       background: '#254CA4',
-      transform: exitPhase === 'reveal' ? 'translateY(-100%)' : 'translateY(0)',
-      transition: exitPhase === 'reveal' ? 'transform 0.6s cubic-bezier(.7,0,.3,1)' : 'none',
       overflow: 'hidden',
       fontFamily: "'Manrope', sans-serif",
     }}>
@@ -2783,7 +2849,13 @@ function OnboardingOverlay({ onSubmit }) {
 // ─── App ───────────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [showTitle, setShowTitle] = useState(true)
+  const [showTitle, setShowTitle] = useState(() => {
+    const p = new URLSearchParams(window.location.search)
+    return !sessionStorage.getItem('seenIntro') &&
+      p.get('skipIntro') !== '1' &&
+      p.get('edit') !== '1' &&
+      !p.get('shelf')
+  })
   const [hoveredId, setHoveredId] = useState(null)
   const [target, setTarget] = useState(null)
   const [displayTarget, setDisplayTarget] = useState(null)
@@ -2831,6 +2903,7 @@ export default function App() {
   const _urlParams  = new URLSearchParams(window.location.search)
   const _skipIntro  = _urlParams.get('skipIntro') === '1'
   const _startEdit  = _urlParams.get('edit') === '1'
+  const [flashInventory, setFlashInventory] = useState(_startEdit)
 
   const [userId, setUserId]                 = useState(null)
   const [shelfName, setShelfName]           = useState('My Shelf')
@@ -2882,6 +2955,9 @@ export default function App() {
 
   const stageRef = useRef(null)
   const containerRef = useRef(null)
+  const scrollRef = useRef(null)
+  const [scrollUnlocked, setScrollUnlocked] = useState(false)
+  const GAP_VH = 80
   const closeTimer = useRef(null)
   const retractRef = useRef(null)
   const displayTargetRef = useRef(null)
@@ -2945,6 +3021,8 @@ export default function App() {
     window.addEventListener('resize', updateScale)
     return () => { window.removeEventListener('resize', updateScale); ro?.disconnect() }
   }, [])
+
+  // scroll-to-shelf handled directly in handleReveal (Mode 1 only)
 
   // ── DB: load on mount, auto-save on changes ───────────────────────────────
   useEffect(() => {
@@ -3032,35 +3110,28 @@ export default function App() {
   //   1130–1950ms: smoke off; head rises from below to top-of-shelf position, arm free
   //   1950ms    : headIntroTop released, normal formula takes over
   useEffect(() => {
-    if (!isDbLoaded || showOnboarding || bookcaseRevealed) return
+    if (!isDbLoaded || showOnboarding || bookcaseRevealed || showTitle) return
 
     window.scrollTo({ top: 0, behavior: 'instant' })
     document.body.style.overflow = 'hidden'
 
-    setPoofActive(true)
-
-    // Smoke-only path: visiting someone else's shelf, or returning from a view-only shelf.
-    // Skip the head animation — just poof, reveal, clear.
+    // Smoke-only path: reload / view-only / skipIntro — poof then reveal.
     if (_skipIntro || isViewOnly) {
+      setPoofActive(true)
       const tReveal = setTimeout(() => setBookcaseRevealed(true), 450)
-      const tClear  = setTimeout(() => { setPoofActive(false); document.body.style.overflow = '' }, 900)
+      const tClear  = setTimeout(() => { setPoofActive(false); document.body.style.overflow = ''; setScrollUnlocked(true) }, 900)
       return () => { clearTimeout(tReveal); clearTimeout(tClear) }
     }
 
+    // Mode 1 (from title intro): no poof — reveal immediately, head rises from below.
     const startBelow = bookcaseBottom + 100
     let emergeRaf = null
 
-    // t=565ms: reveal bookcase under smoke; head parked below shelf at top-of-shelf X (580)
-    const tReveal = setTimeout(() => {
-      setBookcaseRevealed(true)
-      setHeadIntroTop(startBelow)
-      setHeadIntroLeft(580)   // lock X to top-of-shelf position regardless of cursor
-    }, 565)
+    setBookcaseRevealed(true)
+    setHeadIntroTop(startBelow)
+    setHeadIntroLeft(580)
 
     const t1 = setTimeout(() => {
-      // Smoke clears — head rises from below to top-of-shelf position
-      setPoofActive(false)
-
       const headEndTop = 108  // topBlend=1 resting headTop
       const dur        = 820
 
@@ -3077,20 +3148,20 @@ export default function App() {
           setHeadIntroTop(null)
           setHeadIntroLeft(null)
           document.body.style.overflow = ''
+          setScrollUnlocked(true)
         }
       }
       emergeRaf = requestAnimationFrame(frameEmerge)
-    }, 1130)
+    }, 200)
 
     return () => {
-      clearTimeout(tReveal)
       clearTimeout(t1)
       if (emergeRaf) cancelAnimationFrame(emergeRaf)
       setHeadIntroTop(null)
       setHeadIntroLeft(null)
       document.body.style.overflow = ''
     }
-  }, [isDbLoaded, showOnboarding]) // eslint-disable-line
+  }, [isDbLoaded, showOnboarding, showTitle]) // eslint-disable-line
 
   // Header hide/show: requires 80px scroll movement to toggle, cursor within 70px of top reveals it,
   // hides after 3s of mouse inactivity away from top
@@ -3696,15 +3767,15 @@ export default function App() {
         // Came from add panel, dropped off shelf → send to inventory
         if (drag.type === 'vertical-book' && drag.book && userId) {
           addInventoryBook(userId, drag.book).then(invId =>
-            setInventory(prev => [...prev, { id: invId, type: 'book', book: drag.book }])
+            setInventory(prev => [{ id: invId, type: 'book', book: drag.book }, ...prev].slice(0, 5))
           )
         } else if (drag.type === 'horizontal-stack' && drag.books?.length && userId) {
           addInventoryStack(userId, drag.books).then(invId =>
-            setInventory(prev => [...prev, { id: invId, type: 'stack', books: drag.books }])
+            setInventory(prev => [{ id: invId, type: 'stack', books: drag.books }, ...prev].slice(0, 5))
           )
         } else if (drag.type !== 'vertical-book' && drag.type !== 'horizontal-stack' && userId) {
           addInventoryDecor(userId, drag.type).then(invId =>
-            setInventory(prev => [...prev, { id: invId, type: 'decor', decorType: drag.type }])
+            setInventory(prev => [{ id: invId, type: 'decor', decorType: drag.type }, ...prev].slice(0, 5))
           )
         }
       } else if (drag.sourceItem != null) {
@@ -3993,9 +4064,39 @@ export default function App() {
 
   const stageHeight = Math.max(960, bookcaseBottom + 140)
 
+  function handleReveal() {
+    setScrollUnlocked(true)
+    setTimeout(() => {
+      if (scrollRef.current) {
+        const target = window.innerHeight + window.innerHeight * (GAP_VH / 100)
+        scrollRef.current.scrollTo({ top: target, behavior: 'smooth' })
+      }
+    }, 0)
+  }
+
+  function handleDismiss() {
+    sessionStorage.setItem('seenIntro', '1')
+    setShowTitle(false)
+    setScrollUnlocked(false)
+    requestAnimationFrame(() => {
+      if (scrollRef.current) scrollRef.current.scrollTop = 0
+    })
+  }
+
   return (
-    <div
-      ref={containerRef}
+    <div ref={scrollRef} style={{ height: '100vh', overflow: scrollUnlocked ? 'auto' : 'hidden' }}>
+      {showTitle && (
+        <>
+          <TitleScreen onDismiss={handleDismiss} onReveal={handleReveal} scale={scale} />
+          <div style={{
+            height: `${GAP_VH}vh`, width: '100%',
+            background: 'linear-gradient(to bottom, #223152, #19243D)',
+            overflow: 'hidden',
+          }} />
+        </>
+      )}
+      <div
+        ref={containerRef}
       onContextMenu={e => e.preventDefault()}
       style={{
         width: '100%', minHeight: '100vh',
@@ -4434,6 +4535,7 @@ export default function App() {
           isEditMode={isEditMode}
           editDragging={editDragging}
           inventory={inventory}
+          flashInventory={flashInventory}
           onBook={() => { setShowBookPanel(true); setShowDecorPanel(false); setStackBooks([]) }}
           onDecor={() => { setShowDecorPanel(true); setShowBookPanel(false) }}
           onInventoryItemPlace={item => {
@@ -4452,7 +4554,7 @@ export default function App() {
         />
       )}
 
-      {showTitle && <TitleScreen onDismiss={() => setShowTitle(false)} />}
+    </div>
     </div>
   )
 }
