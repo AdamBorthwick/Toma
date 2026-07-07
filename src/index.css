@@ -207,3 +207,18 @@ input:-webkit-autofill:focus { -webkit-box-shadow: 0 0 0 30px white inset !impor
   82%  { transform: scale(1);    opacity: 0.88; }
   100% { transform: scale(0);    opacity: 0; }
 }
+button, [role="button"] { touch-action: manipulation; }
+
+/* Dynamic-viewport fills — on iOS, 100vh includes the strip behind the collapsing
+   browser toolbar, hiding bottom-anchored content (e.g. Toma's head on the title
+   screen). dvh tracks the actually-visible viewport; vh is the fallback. */
+.fill-viewport     { height: 100vh; }
+.min-fill-viewport { min-height: 100vh; }
+.gap-viewport      { height: 80vh; }  /* must match GAP_VH in App.jsx */
+.sheet-max-viewport { max-height: 80vh; }  /* bottom sheets: cap to visible viewport */
+@supports (height: 100dvh) {
+  .fill-viewport     { height: 100dvh; }
+  .min-fill-viewport { min-height: 100dvh; }
+  .gap-viewport      { height: 80dvh; }
+  .sheet-max-viewport { max-height: 80dvh; }
+}

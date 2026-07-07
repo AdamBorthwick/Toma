@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+﻿import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
 import './App.css'
 import { getMyIp, getOrCreateUser, loadShelfByUserId, loadShelfByShareId, loadReviews, persistShelf, getShareId, saveReview, deleteReview, setUsername as saveUsername, getUsername, loadInventory, addInventoryBook, addInventoryStack, addInventoryDecor, removeInventoryItem } from './db.js'
 
@@ -104,6 +104,46 @@ function findShelf(bookId, configs) {
 const SLOT_W    = 37   // logical px per slot — (624 shelf - 16 left border - 16 right border) / 16 slots = 37
 const NUM_SLOTS = 16   // slots per shelf row
 const SHELF_H   = 168  // inner content height
+const MOBILE_HEADER_PAD = 72  // px reserved at top of stage for the always-visible mobile header
+// Stage px fitted to viewport width on mobile (see updateScale).
+const MOBILE_ZOOMED_OUT_FIT = 880  // bookcase + Toma head peeking on the right
+const MOBILE_ZOOMED_IN_FIT = 656    // one-shelf detail; 1.5× multiplier applied on top
+const BOOKCASE_LEFT = 228
+const BOOKCASE_WIDTH = 624
+const BOOKCASE_RIGHT = BOOKCASE_LEFT + BOOKCASE_WIDTH
+const MOBILE_ZOOMED_IN_PEEK_LEFT = 24   // screen px of cave past the left shelf edge
+const MOBILE_ZOOMED_IN_RIGHT = 940       // stage px — pan far enough right to reveal Toma's head
+const MOBILE_ZOOMED_IN_MONSTER_BIAS = 52 // stage px — default framing favors the right peek
+
+function mobileShelfScrollBounds(el, scale) {
+  const shelfLeft = BOOKCASE_LEFT * scale
+  const min = Math.max(0, shelfLeft - MOBILE_ZOOMED_IN_PEEK_LEFT)
+  const max = Math.max(min, MOBILE_ZOOMED_IN_RIGHT * scale - el.clientWidth)
+  return { min, max }
+}
+
+function computeMobileScale(zoomedIn, viewportW) {
+  const fitW = zoomedIn ? MOBILE_ZOOMED_IN_FIT : MOBILE_ZOOMED_OUT_FIT
+  const base = viewportW / fitW
+  return Math.max(0.4, Math.min(3.0, zoomedIn ? base * 1.5 : base))
+}
+const GHOST_LIFT = 48  // px the drag ghost floats above the finger on touch (thumb hides it otherwise);
+                       // drop detection uses the ghost position, so highlight matches what you see
+
+// Set the ghost's position via a single translate3d that also folds in the content-centering
+// offsets (stored on the node's data attrs by DragGhost). One transform property is more
+// reliable across engines than mixing left/top with a separate transform — iOS Safari
+// occasionally desyncs the two when a CSS-zoom subtree exists elsewhere on the page.
+function setGhostPos(el, x, y) {
+  if (!el) return
+  // Persist the raw finger position on the node so the ref callback can re-apply after
+  // a React re-render (which resets style.transform when it swaps content).
+  el.dataset.x = x
+  el.dataset.y = y
+  const tx = parseFloat(el.dataset.tx || '0') + x
+  const ty = parseFloat(el.dataset.ty || '0') + y
+  el.style.transform = `translate3d(${tx}px, ${ty}px, 0)`
+}
 
 const BOOK_CATALOG = SHELVES.flatMap(sh =>
   sh.items.flatMap(it =>
@@ -450,11 +490,11 @@ function findFreeZone(items, centre, sw, excl) {
 // upper arm flattens to horizontal, letting the arm clear past the shelf edge.
 // returnProgress 0→1: during 'returning', sweeps elbow leftward into the shelf so the
 // whole arm disappears behind it (elbow moves 760 → 300).
-function computeArm(target, retractMode = 0, returnProgress = 0, maxElbowY = 9999, minTx = 270) {
+function computeArm(target, retractMode = 0, returnProgress = 0, maxElbowY = 9999, minTx = 270, maxTx = 786) {
   const rawTx = target ? target.x : 397
   const tx = retractMode > 0
     ? Math.max(minTx, rawTx)
-    : Math.max(minTx, Math.min(786, rawTx))
+    : Math.max(minTx, Math.min(maxTx, rawTx))
   const ty = target ? target.y : 500
   const elbowX = 910 - returnProgress * 460  // 910 → 450 as arm sweeps back into shelf
   const elbowY = Math.max(214, Math.min(maxElbowY, ty))
@@ -985,7 +1025,7 @@ function PlacedHorizontalStack({ books, w, onBookClick, onBookMouseDown, editMod
             key={i}
             onMouseEnter={() => setHoveredIdx(i)}
             onMouseLeave={() => setHoveredIdx(null)}
-            onMouseDown={onBookMouseDown ? e => { e.stopPropagation(); onBookMouseDown(i, e) } : undefined}
+            onPointerDown={onBookMouseDown ? e => { e.stopPropagation(); onBookMouseDown(i, e) } : undefined}
             onClick={onBookClick ? e => { e.stopPropagation(); onBookClick(b) } : undefined}
             style={{
               width: slabW, height: slabH, background: b.spine, borderRadius: 2, flexShrink: 0,
@@ -1011,19 +1051,20 @@ function PlacedHorizontalStack({ books, w, onBookClick, onBookMouseDown, editMod
 
 // ─── EditableShelfRow ─────────────────────────────────────────────────────────
 
-function EditableShelfRow({ shelf, shelfIdx, items, dragging, dropTarget, innerRef, onMouseMove, onMouseUp, onItemMouseDown, onStackBookMouseDown, onEditClick, grabbedBookId, showEditButton }) {
+function EditableShelfRow({ shelf, shelfIdx, items, dragging, dropTarget, innerRef, onPointerMove, onPointerUp, onItemPointerDown, onStackBookPointerDown, onEditClick, grabbedBookId, showEditButton, shelfH = SHELF_H, isMobile = false }) {
   const [hoveredItemId, setHoveredItemId] = useState(null)
   return (
     <>
       <div style={{ position: 'relative', display: 'flex', background: '#E2712C', borderLeft: '16px solid #E2712C', borderRight: '16px solid #E2712C' }}>
+        {/* Mobile shelf editing goes through the footer's "Shelves" list instead of per-row chips */}
         <ShelfLabel label={shelf.label} tabBg={shelf.tabBg} tabInk={shelf.tabInk} />
-        {onEditClick && <EditButton onClick={onEditClick} visible={showEditButton !== false} onMouseDown={e => e.stopPropagation()} />}
+        {onEditClick && !isMobile && <EditButton onClick={onEditClick} visible={showEditButton !== false} onMouseDown={e => e.stopPropagation()} />}
         <div
           ref={innerRef}
-          onMouseMove={onMouseMove}
-          onMouseUp={onMouseUp}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
           style={{
-            position: 'relative', flex: 1, height: SHELF_H,
+            position: 'relative', flex: 1, height: shelfH,
             background: 'linear-gradient(180deg,#A4501D 0%,#EA8B50 8%)',
             overflow: 'hidden',
             cursor: dragging ? 'grabbing' : 'default',
@@ -1064,16 +1105,19 @@ function EditableShelfRow({ shelf, shelfIdx, items, dragging, dropTarget, innerR
               key={it.id}
               onMouseEnter={() => setHoveredItemId(it.id)}
               onMouseLeave={() => setHoveredItemId(null)}
-              onMouseDown={e => { e.preventDefault(); e.stopPropagation(); onItemMouseDown(e, shelfIdx, it) }}
+              onPointerDown={e => { if (!isMobile) e.preventDefault(); e.stopPropagation(); onItemPointerDown(e, shelfIdx, it) }}
               style={{
                 position: 'absolute', left: it.startSlot * SLOT_W, bottom: 0,
                 width: it.slotWidth * SLOT_W, height: '100%',
                 cursor: 'grab', zIndex: hoveredItemId === it.id ? 5 : 2,
+                // 'none' so a touch-drag on the item (in any direction, incl. vertically to
+                // another shelf) is captured as a drag, not swallowed by page scrolling.
+                touchAction: 'none',
               }}
             >
               {it.type === 'vertical-book' && (
                 <PlacedVerticalBook
-                  book={it.book} w={it.slotWidth * SLOT_W} h={SHELF_H}
+                  book={it.book} w={it.slotWidth * SLOT_W} h={shelfH}
                   active={hoveredItemId === it.id}
                   grabbed={it.book?.id === grabbedBookId}
                 />
@@ -1084,8 +1128,8 @@ function EditableShelfRow({ shelf, shelfIdx, items, dragging, dropTarget, innerR
                   w={it.slotWidth * SLOT_W}
                   editMode
                   grabbedBookId={grabbedBookId}
-                  onBookMouseDown={onStackBookMouseDown
-                    ? (bookIdx, e) => onStackBookMouseDown(e, shelfIdx, it, bookIdx)
+                  onBookMouseDown={onStackBookPointerDown
+                    ? (bookIdx, e) => onStackBookPointerDown(e, shelfIdx, it, bookIdx)
                     : undefined}
                 />
               )}
@@ -1109,7 +1153,7 @@ function EditableShelfRow({ shelf, shelfIdx, items, dragging, dropTarget, innerR
 
 // ─── SavedShelfRow — read-only view of placed items after saving ──────────────
 
-function SavedShelfRow({ shelf, items, onBookClick, onEditClick, grabbedBookId }) {
+function SavedShelfRow({ shelf, items, onBookClick, onEditClick, grabbedBookId, shelfH = SHELF_H }) {
   const [hoveredId, setHoveredId] = useState(null)
   return (
     <>
@@ -1117,7 +1161,7 @@ function SavedShelfRow({ shelf, items, onBookClick, onEditClick, grabbedBookId }
         <ShelfLabel label={shelf.label} tabBg={shelf.tabBg} tabInk={shelf.tabInk} />
         {onEditClick && <EditButton onClick={onEditClick} visible={!!onEditClick} />}
         <div style={{
-          position: 'relative', flex: 1, height: SHELF_H,
+          position: 'relative', flex: 1, height: shelfH,
           background: 'linear-gradient(180deg,#A4501D 0%,#EA8B50 8%)',
           overflow: 'hidden',
         }}>
@@ -1131,7 +1175,7 @@ function SavedShelfRow({ shelf, items, onBookClick, onEditClick, grabbedBookId }
             >
               {it.type === 'vertical-book' && (
                 <PlacedVerticalBook
-                  book={it.book} w={it.slotWidth * SLOT_W} h={SHELF_H}
+                  book={it.book} w={it.slotWidth * SLOT_W} h={shelfH}
                   active={hoveredId === it.id}
                   grabbed={it.book?.id === grabbedBookId}
                   onEnter={() => setHoveredId(it.id)}
@@ -1159,7 +1203,7 @@ function SavedShelfRow({ shelf, items, onBookClick, onEditClick, grabbedBookId }
 
 // ─── SidePanelButtons ─────────────────────────────────────────────────────────
 
-function SidePanelButtons({ editDragging, onBook, onDecor, isEditMode, inventory = [], onInventoryItemPlace, flashInventory = false }) {
+function SidePanelButtons({ editDragging, onBook, onDecor, onShelves, isEditMode, inventory = [], onInventoryItemPlace, flashInventory = false, isMobile = false, onToggleEdit, onShare, showShare = false }) {
   const [invHover, setInvHover] = useState(false)
 
   useEffect(() => {
@@ -1183,46 +1227,132 @@ function SidePanelButtons({ editDragging, onBook, onDecor, isEditMode, inventory
     document.head.appendChild(s)
   }, [])
 
+  const btnSize = isMobile ? 64 : 88
   const btnBase = {
-    width: 88, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
-    padding: '16px 8px', border: 'none', borderRadius: 16, cursor: 'pointer',
-    fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: 14,
+    width: btnSize, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+    padding: isMobile ? '10px 6px' : '16px 8px', border: 'none', borderRadius: 16, cursor: 'pointer',
+    fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: isMobile ? 12 : 14,
     transition: 'transform .12s',
+    ...(isMobile ? { pointerEvents: 'auto' } : {}),
   }
   const onHover  = e => { e.currentTarget.style.transform = 'scale(1.06)' }
   const offHover = e => { e.currentTarget.style.transform = '' }
+
+  // Mobile: wraps each footer button so it can slide/collapse as build mode toggles
+  const slide = show => ({
+    width: show ? btnSize : 0,
+    marginRight: show ? 12 : 0,
+    opacity: show ? 1 : 0,
+    transform: show ? 'scale(1) translateY(0)' : 'scale(0.7) translateY(16px)',
+    pointerEvents: show ? 'auto' : 'none',
+    overflow: show ? 'visible' : 'hidden',
+    transition: 'width .35s cubic-bezier(0.22,1,0.36,1), margin .35s cubic-bezier(0.22,1,0.36,1), opacity .25s ease, transform .35s cubic-bezier(0.22,1,0.36,1)',
+    flexShrink: 0,
+  })
+
+  const containerStyle = isMobile ? {
+    // Central footer — always present; individual buttons slide in/out with build mode.
+    // Hidden while dragging so it doesn't block the drop area.
+    position: 'fixed', bottom: 20, left: '50%',
+    display: 'flex', flexDirection: 'row', alignItems: 'flex-end',
+    zIndex: 48,
+    transform: 'translateX(-50%)',
+    opacity: !editDragging ? 1 : 0,
+    transition: 'opacity 0.2s ease',
+    pointerEvents: 'none',
+  } : {
+    position: 'fixed', right: 24, top: '50%',
+    display: 'flex', flexDirection: 'column', gap: 14,
+    zIndex: 48,
+    transform: isEditMode ? 'translateY(-50%) translateX(0)' : 'translateY(-50%) translateX(130px)',
+    opacity: isEditMode && !editDragging ? 1 : 0,
+    transition: 'transform 0.4s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease',
+    pointerEvents: isEditMode && !editDragging ? 'auto' : 'none',
+  }
+
   return (
-    <div style={{
-      position: 'fixed', right: 24, top: '50%',
-      display: 'flex', flexDirection: 'column', gap: 14,
-      zIndex: 48,
-      transform: isEditMode ? 'translateY(-50%) translateX(0)' : 'translateY(-50%) translateX(130px)',
-      opacity: isEditMode && !editDragging ? 1 : 0,
-      transition: 'transform 0.4s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease',
-      pointerEvents: isEditMode && !editDragging ? 'auto' : 'none',
-    }}>
-      <button onClick={onBook} style={{ ...btnBase, background: '#254CA4', color: '#FDF8EF' }}
-        onMouseEnter={onHover} onMouseLeave={offHover}>
-        <IconBooks size={28} color="#FDF8EF" />
-        <span>Book</span>
-      </button>
-      <button onClick={onDecor} style={{ ...btnBase, background: '#254CA4', color: '#FDF8EF' }}
-        onMouseEnter={onHover} onMouseLeave={offHover}>
-        <IconLeaf size={28} color="#FDF8EF" />
-        <span>Decor</span>
-      </button>
+    <div style={containerStyle}>
+      {/* Build / Done — mobile footer only (desktop keeps the header toggle).
+          Padding is reduced by the 3px border width so the button matches the height
+          of the borderless Book/Decor buttons beside it. */}
+      {isMobile && (
+        <div style={slide(true)}>
+          <button onClick={onToggleEdit} style={{
+            ...btnBase,
+            padding: '7px 3px',
+            background: isEditMode
+              ? '#FFD700'
+              : 'linear-gradient(#2A2A2A, #2A2A2A) padding-box, repeating-linear-gradient(-45deg, #FFD700, #FFD700 7px, #1C1C1C 7px, #1C1C1C 14px) border-box',
+            border: '3px solid transparent',
+            color: isEditMode ? '#1C1C2E' : '#FDF8EF',
+          }}>
+            {isEditMode
+              ? <IconCheck size={22} color="#1C1C2E" />
+              : <IconPencil size={22} color="#FDF8EF" />}
+            <span>{isEditMode ? 'Done' : 'Build'}</span>
+          </button>
+        </div>
+      )}
+      <div style={isMobile ? slide(isEditMode) : undefined}>
+        <button onClick={onBook} style={{ ...btnBase, background: '#254CA4', color: '#FDF8EF' }}
+          onMouseEnter={onHover} onMouseLeave={offHover}>
+          <IconBooks size={isMobile ? 22 : 28} color="#FDF8EF" />
+          <span>Book</span>
+        </button>
+      </div>
+      <div style={isMobile ? slide(isEditMode) : undefined}>
+        <button onClick={onDecor} style={{ ...btnBase, background: '#254CA4', color: '#FDF8EF' }}
+          onMouseEnter={onHover} onMouseLeave={offHover}>
+          <IconLeaf size={isMobile ? 22 : 28} color="#FDF8EF" />
+          <span>Decor</span>
+        </button>
+      </div>
+      {/* Edit shelf — opens the shelf manager overlay (add / rename / delete / reorder).
+          Mobile: sits between Decor and Share in the sliding footer.
+          Desktop: added as another vertical button in the right-side stack. */}
+      {isMobile ? (
+        <div style={slide(isEditMode)}>
+          <button onClick={onShelves} style={{ ...btnBase, background: '#254CA4', color: '#FDF8EF' }}>
+            <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+              <path d="M3 6.5H19" stroke="#FDF8EF" strokeWidth="2" strokeLinecap="round" />
+              <path d="M3 12.5H19" stroke="#FDF8EF" strokeWidth="2" strokeLinecap="round" />
+              <path d="M3 18.5H19" stroke="#FDF8EF" strokeWidth="2" strokeLinecap="round" />
+              <rect x="5.5" y="8.6" width="2.6" height="3.9" rx="0.6" fill="#FDF8EF" />
+              <rect x="9.3" y="8.0" width="2.6" height="4.5" rx="0.6" fill="#FDF8EF" />
+              <rect x="6.6" y="2.6" width="2.6" height="3.9" rx="0.6" fill="#FDF8EF" />
+              <rect x="12" y="14.6" width="2.6" height="3.9" rx="0.6" fill="#FDF8EF" />
+            </svg>
+            <span style={{ whiteSpace: 'nowrap', fontSize: 11 }}>Edit shelf</span>
+          </button>
+        </div>
+      ) : (
+        <button onClick={onShelves} style={{ ...btnBase, background: '#254CA4', color: '#FDF8EF' }}
+          onMouseEnter={onHover} onMouseLeave={offHover}>
+          <svg width="28" height="28" viewBox="0 0 22 22" fill="none">
+            <path d="M3 6.5H19" stroke="#FDF8EF" strokeWidth="2" strokeLinecap="round" />
+            <path d="M3 12.5H19" stroke="#FDF8EF" strokeWidth="2" strokeLinecap="round" />
+            <path d="M3 18.5H19" stroke="#FDF8EF" strokeWidth="2" strokeLinecap="round" />
+            <rect x="5.5" y="8.6" width="2.6" height="3.9" rx="0.6" fill="#FDF8EF" />
+            <rect x="9.3" y="8.0" width="2.6" height="4.5" rx="0.6" fill="#FDF8EF" />
+            <rect x="6.6" y="2.6" width="2.6" height="3.9" rx="0.6" fill="#FDF8EF" />
+            <rect x="12" y="14.6" width="2.6" height="3.9" rx="0.6" fill="#FDF8EF" />
+          </svg>
+          <span>Shelves</span>
+        </button>
+      )}
+      {/* Share moved to a dedicated top-right fixed button on mobile — see App root */}
       {inventory.length > 0 && (() => {
         const topItem = inventory[0]
         const stackFirst = topItem.type === 'stack' ? topItem.books?.[0] : null
         const stackRest  = topItem.type === 'stack' ? (topItem.books?.length ?? 1) - 1 : 0
-        return (
+        const tile = (
           <div
             onClick={() => onInventoryItemPlace(topItem)}
             onMouseEnter={() => setInvHover(true)}
             onMouseLeave={() => setInvHover(false)}
             title={topItem.type === 'book' ? topItem.book?.title : topItem.type === 'stack' ? `${stackFirst?.title ?? 'Stack'} +${stackRest}` : topItem.decorType}
             style={{
-              width: 88, height: 84,
+              width: isMobile ? 64 : 88, height: isMobile ? 60 : 84,
               background: 'rgba(253,248,239,0.13)',
               color: 'rgba(253,248,239,0.55)',
               outline: '2px dashed currentColor',
@@ -1234,6 +1364,7 @@ function SidePanelButtons({ editDragging, onBook, onDecor, isEditMode, inventory
               borderRadius: 10,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               cursor: 'pointer', flexShrink: 0,
+              pointerEvents: 'auto',
             }}
           >
             {/* Content wrapper — pops out on hover */}
@@ -1279,6 +1410,7 @@ function SidePanelButtons({ editDragging, onBook, onDecor, isEditMode, inventory
             </div>
           </div>
         )
+        return isMobile ? <div style={slide(isEditMode)}>{tile}</div> : tile
       })()}
     </div>
   )
@@ -1401,7 +1533,7 @@ function BookPreviewModal({ book, isSelected, onToggle, onClose }) {
 
 // ─── BookAddPanel ─────────────────────────────────────────────────────────────
 
-function BookAddPanel({ isOpen, selectedBooks, onToggleBook, onConfirm, onClose }) {
+function BookAddPanel({ isOpen, selectedBooks, onToggleBook, onConfirm, onClose, isMobile = false }) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
@@ -1480,11 +1612,14 @@ function BookAddPanel({ isOpen, selectedBooks, onToggleBook, onConfirm, onClose 
 
   return (
     <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 62 }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', zIndex: 62 }}
       onMouseDown={onClose}
     >
       <div
-        style={{ background: '#FDF8EF', borderRadius: 18, padding: 28, maxWidth: 440, width: '92%', maxHeight: '84vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 40px rgba(0,0,0,0.28)', fontFamily: "'Manrope',sans-serif" }}
+        className={isMobile ? 'sheet-max-viewport' : undefined}
+        style={isMobile
+          ? { background: '#FDF8EF', borderRadius: '18px 18px 0 0', padding: '20px 16px', width: '100%', display: 'flex', flexDirection: 'column', boxShadow: '0 -4px 24px rgba(0,0,0,0.2)', fontFamily: "'Manrope',sans-serif", overflowY: 'auto' }
+          : { background: '#FDF8EF', borderRadius: 18, padding: 28, maxWidth: 440, width: '92%', maxHeight: '84vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 40px rgba(0,0,0,0.28)', fontFamily: "'Manrope',sans-serif" }}
         onMouseDown={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -1599,7 +1734,7 @@ function BookAddPanel({ isOpen, selectedBooks, onToggleBook, onConfirm, onClose 
 
 // ─── DecorAddPanel ────────────────────────────────────────────────────────────
 
-function DecorAddPanel({ isOpen, onSelect, onClose }) {
+function DecorAddPanel({ isOpen, onSelect, onClose, isMobile = false }) {
   const [picked, setPicked] = useState(null)
   if (!isOpen) return null
   const items = [
@@ -1611,11 +1746,13 @@ function DecorAddPanel({ isOpen, onSelect, onClose }) {
   ]
   return (
     <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 62 }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', zIndex: 62 }}
       onMouseDown={onClose}
     >
       <div
-        style={{ background: '#FDF8EF', borderRadius: 18, padding: 20, maxWidth: 480, width: '92%', boxShadow: '0 8px 40px rgba(0,0,0,0.28)', fontFamily: "'Manrope',sans-serif" }}
+        style={isMobile
+          ? { background: '#FDF8EF', borderRadius: '18px 18px 0 0', padding: '20px 16px', width: '100%', boxShadow: '0 -4px 24px rgba(0,0,0,0.2)', fontFamily: "'Manrope',sans-serif" }
+          : { background: '#FDF8EF', borderRadius: 18, padding: 20, maxWidth: 480, width: '92%', boxShadow: '0 8px 40px rgba(0,0,0,0.28)', fontFamily: "'Manrope',sans-serif" }}
         onMouseDown={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -1625,7 +1762,7 @@ function DecorAddPanel({ isOpen, onSelect, onClose }) {
         </div>
 
         {/* Cards — grid wraps automatically as more items are added */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(4, 1fr)' : 'repeat(5, 1fr)', gap: 6 }}>
           {items.map(({ type, label, preview }) => {
             const sel = picked === type
             return (
@@ -1662,14 +1799,203 @@ function DecorAddPanel({ isOpen, onSelect, onClose }) {
   )
 }
 
+// ─── ShelfListModal — mobile bottom sheet listing shelves (edit / delete / add) ─
+
+function ShelfListModal({ shelfConfigs, getColors, shelfName, username, onEditPlate, onEditShelf, onDeleteShelf, onAddShelf, onReorder, onClose }) {
+  const canDelete = shelfConfigs.length > 2
+  const ROW_H = 62  // row height + gap; used to translate rows during drag and to compute drop index
+  const listRef = useRef(null)
+  const rowRefs = useRef([])
+  // Drag state — refs are the source of truth (event handlers close over them),
+  // React state mirrors the refs to drive per-frame styling.
+  const dragFromRef = useRef(-1)
+  const dragOverRef = useRef(-1)
+  const [dragFrom, setDragFrom] = useState(-1)
+  const [dragOver, setDragOver] = useState(-1)
+  // pointerOffset = how far (px) the finger has moved from the row's original position;
+  // drives the dragged row's translateY so it sticks to the finger.
+  const [pointerOffset, setPointerOffset] = useState(0)
+
+  function startDrag(idx, e) {
+    dragFromRef.current = idx
+    dragOverRef.current = idx
+    setDragFrom(idx); setDragOver(idx); setPointerOffset(0)
+    const startY = e.clientY
+    const list = listRef.current
+    const listRect = list.getBoundingClientRect()
+    const rowTopWithinList = idx * ROW_H  // where the row's origin sits inside the list
+    const listInnerH = shelfConfigs.length * ROW_H
+    function onMove(ev) {
+      const dy = ev.clientY - startY
+      // clamp the offset so the dragged row can't leave the list bounds
+      const minDy = -rowTopWithinList
+      const maxDy = (listInnerH - ROW_H) - rowTopWithinList
+      setPointerOffset(Math.max(minDy, Math.min(maxDy, dy)))
+      // Drop index: use the row's current visual centre to pick the slot
+      const visualCentre = rowTopWithinList + dy + ROW_H / 2
+      const target = Math.max(0, Math.min(shelfConfigs.length - 1, Math.floor(visualCentre / ROW_H)))
+      if (target !== dragOverRef.current) {
+        dragOverRef.current = target
+        setDragOver(target)
+      }
+      ev.preventDefault()
+    }
+    function onUp() {
+      const from = dragFromRef.current
+      const to = dragOverRef.current !== -1 ? dragOverRef.current : from
+      dragFromRef.current = -1
+      dragOverRef.current = -1
+      setDragFrom(-1); setDragOver(-1); setPointerOffset(0)
+      document.removeEventListener('pointermove', onMove)
+      document.removeEventListener('pointerup', onUp)
+      document.removeEventListener('pointercancel', onUp)
+      if (from !== -1 && to !== from) onReorder(from, to)
+    }
+    document.addEventListener('pointermove', onMove, { passive: false })
+    document.addEventListener('pointerup', onUp)
+    document.addEventListener('pointercancel', onUp)
+  }
+
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 62 }}
+      onMouseDown={onClose}
+    >
+      <div
+        className="sheet-max-viewport"
+        style={{ background: '#FDF8EF', borderRadius: '18px 18px 0 0', padding: '20px 16px', width: '100%', display: 'flex', flexDirection: 'column', boxShadow: '0 -4px 24px rgba(0,0,0,0.2)', fontFamily: "'Manrope',sans-serif", overflowY: 'auto' }}
+        onMouseDown={e => e.stopPropagation()}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div style={{ fontSize: 20, fontWeight: 700, color: '#1C1C2E' }}>Shelves</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', display: 'flex', alignItems: 'center' }}><IconClose size={16} color="#606078" /></button>
+        </div>
+
+        {/* Shelf name + username — tap to open the plate edit modal */}
+        <button
+          onClick={onEditPlate}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left',
+            background: '#F2EFE8', border: '2px solid #E4E4EC', borderRadius: 10,
+            padding: '10px 14px', cursor: 'pointer', fontFamily: "'Manrope',sans-serif",
+            marginBottom: 18, width: '100%',
+          }}
+        >
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#9898B0', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 3 }}>Collection</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#1C1C2E', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {shelfName || 'My Shelf'}
+            </div>
+            {username && (
+              <div style={{ fontSize: 12, color: '#606078', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                made by {username}
+              </div>
+            )}
+          </div>
+          <IconPencil size={15} color="#9898B0" />
+        </button>
+
+        <div style={{ fontSize: 13, color: '#606078', marginBottom: 10 }}>Tap a shelf to rename · drag the handle to reorder</div>
+
+        <div ref={listRef} style={{ position: 'relative', display: 'flex', flexDirection: 'column' }}>
+          {shelfConfigs.map((cfg, idx) => {
+            const colors = getColors(cfg.colorKey)
+            const isBeingDragged = dragFrom === idx
+            // Dragged row follows the pointer via pointerOffset. Other rows animate into
+            // the slot the dragged row is currently occupying, revealing the drop location.
+            let translate = 0
+            if (isBeingDragged) {
+              translate = pointerOffset
+            } else if (dragFrom !== -1) {
+              if (dragFrom < idx && dragOver >= idx) translate = -ROW_H     // rows above the target close up
+              else if (dragFrom > idx && dragOver <= idx) translate = ROW_H // rows below the target push down
+            }
+            return (
+              <div
+                key={cfg.id}
+                ref={el => { rowRefs.current[idx] = el }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  height: 46, marginBottom: 8,
+                  transform: `translateY(${translate}px)${isBeingDragged ? ' scale(1.02)' : ''}`,
+                  // Dragged row updates every pointermove (no transition), others glide.
+                  transition: isBeingDragged ? 'none' : 'transform .2s cubic-bezier(0.22,1,0.36,1)',
+                  opacity: isBeingDragged ? 0.92 : 1,
+                  boxShadow: isBeingDragged ? '0 10px 24px rgba(0,0,0,0.2)' : 'none',
+                  borderRadius: isBeingDragged ? 10 : 0,
+                  zIndex: isBeingDragged ? 5 : 1,
+                  // Prevent the dragged row from being covered by later siblings
+                  position: 'relative',
+                }}
+              >
+                {/* Drag handle — press-and-drag anywhere on it to reorder */}
+                <button
+                  onPointerDown={e => { e.preventDefault(); startDrag(idx, e) }}
+                  aria-label="Drag to reorder"
+                  style={{
+                    width: 30, height: 46, borderRadius: 8, border: 'none',
+                    background: 'transparent', color: '#9898B0',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    cursor: 'grab', touchAction: 'none', flexShrink: 0,
+                  }}
+                >
+                  <svg width="16" height="20" viewBox="0 0 16 20" fill="currentColor">
+                    <circle cx="5" cy="4" r="1.6" /><circle cx="11" cy="4" r="1.6" />
+                    <circle cx="5" cy="10" r="1.6" /><circle cx="11" cy="10" r="1.6" />
+                    <circle cx="5" cy="16" r="1.6" /><circle cx="11" cy="16" r="1.6" />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => dragFrom === -1 && onEditShelf(idx)}
+                  style={{
+                    flex: 1, display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left',
+                    background: 'white', border: '2px solid #D0D0DC', borderRadius: 10,
+                    padding: '12px 14px', cursor: 'pointer', fontFamily: "'Manrope',sans-serif",
+                    height: 46, boxSizing: 'border-box',
+                  }}
+                >
+                  <span style={{ width: 18, height: 18, borderRadius: 5, background: colors.tabBg, flexShrink: 0, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.12)' }} />
+                  <span style={{ flex: 1, fontWeight: 700, fontSize: 15, color: '#1C1C2E', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cfg.label}</span>
+                  <IconPencil size={15} color="#9898B0" />
+                </button>
+                <button
+                  onClick={() => canDelete && onDeleteShelf(idx)}
+                  style={{
+                    width: 46, height: 46, borderRadius: 10, border: `2px solid ${canDelete ? '#e3b6b0' : '#E4E4EC'}`,
+                    background: 'white', cursor: canDelete ? 'pointer' : 'default',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    opacity: canDelete ? 1 : 0.45, flexShrink: 0,
+                  }}
+                >
+                  <IconTrash size={18} color={canDelete ? '#c0392b' : '#9898B0'} />
+                </button>
+              </div>
+            )
+          })}
+        </div>
+
+        <button
+          onClick={onAddShelf}
+          style={{
+            marginTop: 6, width: '100%', padding: '12px 0',
+            background: 'none', border: '2px dashed #D0D0DC', borderRadius: 10,
+            color: '#606078', fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: 14,
+            cursor: 'pointer',
+          }}
+        >+ Add Shelf</button>
+      </div>
+    </div>
+  )
+}
+
 // ─── DragGhost ────────────────────────────────────────────────────────────────
 // Shows the dragged item only — Sprout's real arm animates to the cursor position.
 
-function DragGhost({ dragging, ghostRef, dragRotated, stageSc = 1 }) {
+function DragGhost({ dragging, ghostRef, dragRotated, stageSc = 1, shelfH = SHELF_H, isMobile = false }) {
   const isBook  = dragging?.type === 'vertical-book'
   const isStack = dragging?.type === 'horizontal-stack'
   const slotW  = SLOT_W * stageSc
-  const bookH  = SHELF_H * stageSc
+  const bookH  = shelfH * stageSc
   const stackH = 108 * stageSc
 
   let gW, gH, tx, ty, content
@@ -1679,12 +2005,15 @@ function DragGhost({ dragging, ghostRef, dragRotated, stageSc = 1 }) {
     content = <PlacedHorizontalStack books={[dragging.book]} w={gW} />
   } else if (isBook) {
     gW = slotW; gH = bookH
-    tx = -gW;   ty = -(bookH / 2)
+    // Mobile: center the ghost on the finger (drop point). Desktop keeps the book to
+    // the left of the cursor so the mouse pointer sees the shelf beside the book.
+    tx = isMobile ? -gW / 2 : -gW
+    ty = -(bookH / 2)
     content = <PlacedVerticalBook book={dragging.book} w={gW} h={bookH} />
   } else if (isStack && dragRotated) {
     const books = dragging.books ?? []
     gW = books.length * slotW; gH = bookH
-    tx = -gW;                  ty = -(bookH / 2)
+    tx = -gW / 2; ty = -(bookH / 2)
     content = (
       <div style={{ display: 'flex', alignItems: 'flex-end', width: gW, height: gH }}>
         {books.map((b, i) => <PlacedVerticalBook key={i} book={b} w={slotW} h={bookH} />)}
@@ -1708,16 +2037,30 @@ function DragGhost({ dragging, ghostRef, dragRotated, stageSc = 1 }) {
     )
   }
 
+  // Position is driven entirely by imperative setGhostPos calls (translate3d that folds in
+  // the tx/ty centering offset). We deliberately do NOT put transform in the React style
+  // prop — that would let React clobber our per-frame position on re-render.
+  const setRef = el => {
+    if (!el) return
+    ghostRef.current = el
+    el.dataset.tx = tx
+    el.dataset.ty = ty
+    // If a position was set on a previous mount, re-apply it. Otherwise seed with tx/ty
+    // so a mid-render position update doesn't flash to (0,0).
+    const x = parseFloat(el.dataset.x || '0')
+    const y = parseFloat(el.dataset.y || '0')
+    el.style.transform = `translate3d(${tx + x}px, ${ty + y}px, 0)`
+  }
   return (
     <div
-      ref={ghostRef}
+      ref={setRef}
       style={{
         position: 'fixed', top: 0, left: 0, pointerEvents: 'none', zIndex: 55,
         width: gW, height: gH,
-        transform: `translate(${tx}px, ${ty}px)`,
+        willChange: 'transform',
         opacity: dragging ? 0.88 : 0,
         filter: 'drop-shadow(0 8px 24px rgba(0,0,0,0.44))',
-        transition: 'opacity .12s, width .15s ease, height .15s ease, transform .15s ease',
+        transition: 'opacity .12s, width .15s ease, height .15s ease',
       }}
     >
       {content}
@@ -1734,9 +2077,10 @@ function EditButton({ onClick, visible, onMouseDown }) {
       onMouseDown={onMouseDown}
       style={{
         position: 'absolute', right: 'calc(100% + 32px)', top: '50%', transform: 'translateY(-50%)',
-        zIndex: 25, background: '#254CA4', border: 'none', borderRadius: 12,
-        padding: '8px 12px', fontFamily: "'Manrope',sans-serif",
-        fontWeight: 700, fontSize: 14, color: '#FDF8EF',
+        padding: '8px 12px', borderRadius: 12, fontSize: 14,
+        zIndex: 25, background: '#254CA4', border: 'none',
+        fontFamily: "'Manrope',sans-serif",
+        fontWeight: 700, color: '#FDF8EF',
         cursor: 'pointer', whiteSpace: 'nowrap',
         opacity: visible ? 1 : 0,
         pointerEvents: visible ? 'auto' : 'none',
@@ -1751,12 +2095,29 @@ function EditButton({ onClick, visible, onMouseDown }) {
 
 // ─── ShelfLabel — editable tab shown in all shelf views ──────────────────────
 
-function ShelfLabel({ label, tabBg, tabInk }) {
+function ShelfLabel({ label, tabBg, tabInk, onEdit = null }) {
   return (
-    <div style={{ position: 'absolute', left: 0, top: 0, zIndex: 20, pointerEvents: 'none' }}>
+    <div style={{ position: 'absolute', left: 0, top: 0, zIndex: 20, pointerEvents: 'none', display: 'flex', alignItems: 'flex-start', gap: 6 }}>
       <div style={{ background: tabBg, color: tabInk, fontFamily: "'Manrope',sans-serif", fontWeight: 600, fontSize: 13, padding: '5px 12px 5px 8px', borderRadius: '0 0 6px 0', boxShadow: '2px 2px 6px rgba(0,0,0,0.18)' }}>
         {label}
       </div>
+      {/* small in-shelf-scale edit chip, sits right of the tag (mobile edit mode) */}
+      {onEdit && (
+        <button
+          onClick={onEdit}
+          onPointerDown={e => e.stopPropagation()}
+          style={{
+            pointerEvents: 'auto', marginTop: 3,
+            display: 'flex', alignItems: 'center', gap: 3,
+            background: '#254CA4', color: '#FDF8EF', border: 'none',
+            borderRadius: 7, padding: '4px 8px', fontSize: 11, fontWeight: 700,
+            fontFamily: "'Manrope',sans-serif", cursor: 'pointer',
+            boxShadow: '1px 2px 5px rgba(0,0,0,0.25)',
+          }}
+        >
+          Edit <IconPencil size={10} color="currentColor" />
+        </button>
+      )}
     </div>
   )
 }
@@ -1802,7 +2163,7 @@ function PoofSmoke({ top, h }) {
 
 // ─── ShelfPlate — gold nameplate above the bookcase ──────────────────────────
 
-function ShelfPlate({ shelfName, username, onEdit, showEditButton }) {
+function ShelfPlate({ shelfName, username, onEdit, showEditButton, isMobile = false }) {
   const [hovered, setHovered] = useState(false)
   const ref = useRef()
   return (
@@ -1832,7 +2193,8 @@ function ShelfPlate({ shelfName, username, onEdit, showEditButton }) {
           </div>
         )}
       </div>
-      {showEditButton && <EditButton onClick={onEdit} visible={hovered} />}
+      {/* Desktop: hover-reveal Edit button. Mobile edits the plate via the Shelves overlay. */}
+      {showEditButton && !isMobile && <EditButton onClick={onEdit} visible={hovered} />}
     </div>
   )
 }
@@ -1849,7 +2211,7 @@ function ShelfPlateEditModal({ shelfName, username, onSave, onClose }) {
       style={{ position: 'fixed', inset: 0, background: 'rgba(25,36,61,0.6)', zIndex: 9000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
       onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div style={{ background: '#FDF8EF', borderRadius: 20, padding: '28px 32px 24px', width: 340, boxShadow: '0 16px 48px rgba(0,0,0,0.3)', fontFamily: "'Manrope',sans-serif" }}>
+      <div style={{ background: '#FDF8EF', borderRadius: 20, padding: '28px 32px 24px', width: 'min(340px, 92vw)', boxShadow: '0 16px 48px rgba(0,0,0,0.3)', fontFamily: "'Manrope',sans-serif" }}>
         <div style={{ fontSize: 22, fontWeight: 700, color: '#1C1C2E', marginBottom: 22 }}>Edit label</div>
         <div style={{ fontSize: 13, fontWeight: 700, color: '#606078', marginBottom: 8, letterSpacing: '0.04em' }}>YOUR NAME</div>
         <input
@@ -1895,7 +2257,7 @@ function ShelfEditModal({ cfg, onSave, onDelete, onClose, canDelete = true, show
       style={{ position: 'fixed', inset: 0, background: 'rgba(25,36,61,0.6)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
       onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div style={{ background: '#FDF8EF', borderRadius: 20, padding: '28px 32px 24px', width: 340, boxShadow: '0 16px 48px rgba(0,0,0,0.3)', fontFamily: "'Manrope',sans-serif" }}>
+      <div style={{ background: '#FDF8EF', borderRadius: 20, padding: '28px 32px 24px', width: 'min(340px, 92vw)', boxShadow: '0 16px 48px rgba(0,0,0,0.3)', fontFamily: "'Manrope',sans-serif" }}>
         <div style={{ fontSize: 22, fontWeight: 700, color: '#1C1C2E', marginBottom: 22 }}>{title}</div>
 
         <div style={{ fontSize: 13, fontWeight: 700, color: '#606078', marginBottom: 8, letterSpacing: '0.04em' }}>SHELF NAME</div>
@@ -1954,13 +2316,13 @@ function ShelfEditModal({ cfg, onSave, onDelete, onClose, canDelete = true, show
 
 // ─── ShelfRow (read-only display) ─────────────────────────────────────────────
 
-function ShelfRow({ shelf, hoveredId, grabbedId, onEnter, onLeave, onClick, onEditClick }) {
+function ShelfRow({ shelf, hoveredId, grabbedId, onEnter, onLeave, onClick, onEditClick, shelfH = SHELF_H }) {
   return (
     <>
       <div style={{ position: 'relative', display: 'flex', background: '#E2712C', borderLeft: '16px solid #E2712C', borderRight: '16px solid #E2712C' }}>
         <ShelfLabel label={shelf.label} tabBg={shelf.tabBg} tabInk={shelf.tabInk} />
         {onEditClick && <EditButton onClick={onEditClick} visible={!!onEditClick} />}
-        <div style={{ position: 'relative', flex: 1, height: 168, display: 'flex', alignItems: 'flex-end', gap: 4, padding: '0 14px 0 16px', background: 'linear-gradient(180deg,#A4501D 0%,#EA8B50 8%)', overflow: 'visible' }}>
+        <div style={{ position: 'relative', flex: 1, height: shelfH, display: 'flex', alignItems: 'flex-end', gap: 4, padding: '0 14px 0 16px', background: 'linear-gradient(180deg,#A4501D 0%,#EA8B50 8%)', overflow: 'visible' }}>
           {shelf.items.map((item, i) => {
             if (item.type === 'book') return (
               <VerticalBook key={item.id} b={item}
@@ -1998,7 +2360,7 @@ function ShelfRow({ shelf, hoveredId, grabbedId, onEnter, onLeave, onClick, onEd
   )
 }
 
-function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId, reviewsRef, isViewOnly, ownerName, viewerUserId }) {
+function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId, reviewsRef, isViewOnly, ownerName, viewerUserId, isMobile = false }) {
   // step 0 = below screen  |  step 1 = portrait risen  |  step 2 = spread open
   const [step, setStep] = useState(0)
   const [bookOpen, setBookOpen] = useState(false)
@@ -2024,6 +2386,12 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
     if (p === overlayPage) return
     const prev = overlayPage
     if (pageTimerRef.current) clearTimeout(pageTimerRef.current)
+    // Mobile: sequential single pages, no spread/turner — displayPage/rightDP stay 0
+    if (isMobile) {
+      if (prev === 0 && p > 0) { setOverlayPage(p); setBookOpen(true); return }
+      if (prev > 0 && p === 0) { setOverlayPage(0); setBookOpen(false); return }
+      setOverlayPage(p); return
+    }
     // Cover → Spread
     if (prev === 0 && p > 0) {
       setOverlayPage(p); setDisplayPage(p); setRightDP(p); setBookOpen(true); return
@@ -2163,7 +2531,27 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
     ]},
   ]
 
-  const BW = 280, BH = 420
+  const BW = isMobile ? Math.min(window.innerWidth, 340) : 280
+  const BH = isMobile ? Math.round(BW * 1.5) : 420
+  // Mobile: sequential single pages (0 cover, 1 info, 2 review, 3 links) — the 3D
+  // spread/turner is desktop-only. Desktop: 0 cover, 1-2 spreads.
+  const MAX_PAGE = isMobile ? 3 : 2
+
+  const linksPageContent = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', color: '#606078' }}>Find This Book</div>
+      {bookLinks.map(({ section, items }) => (
+        <div key={section} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: 10, fontWeight: 600, letterSpacing: 0.8, textTransform: 'uppercase', color: '#8888A0', marginBottom: 2 }}>{section}</div>
+          {items.map(({ label, icon, url }) => (
+            <a key={label} href={url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 7, fontFamily: "'Manrope', sans-serif", fontSize: isMobile ? 14 : 12, color: '#2C2C3E', textDecoration: 'none', padding: isMobile ? '8px 0' : '2px 0', borderBottom: '1px solid rgba(100,100,140,0.15)' }}>
+              {icon}<span>{label}</span>
+            </a>
+          ))}
+        </div>
+      ))}
+    </div>
+  )
 
   // Single source of truth for the review page content.
   // isInteractive=true  → live overlay (buttons, textarea, click handlers)
@@ -2197,7 +2585,7 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
         <>
           <div style={{ flex: 1, fontFamily: "'Manrope', sans-serif", fontSize: 12, lineHeight: 1.65, color: '#2C2C3E', overflowY: 'auto', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{reviewText}</div>
           <div style={{ display: 'flex', gap: 4 }}>
-            {[1,2,3,4,5].map(s => <IconStar key={s} size={22} filled={s <= reviewRating} />)}
+            {[1,2,3,4,5].map(s => <IconStar key={s} size={isMobile ? 26 : 22} filled={s <= reviewRating} />)}
           </div>
         </>
       )}
@@ -2209,7 +2597,7 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
           }
           <div style={{ display: 'flex', gap: 0, margin: '2px -4px' }}>
             {[1,2,3,4,5].map(star => (
-              <span key={star} onClick={isInteractive ? () => setDraftRating(star === draftRating ? 0 : star) : undefined} style={{ cursor: isInteractive ? 'pointer' : 'default', userSelect: 'none', padding: '5px 4px', display: 'inline-block' }}><IconStar size={24} filled={star <= draftRating} /></span>
+              <span key={star} onClick={isInteractive ? () => setDraftRating(star === draftRating ? 0 : star) : undefined} style={{ cursor: isInteractive ? 'pointer' : 'default', userSelect: 'none', padding: isMobile ? '8px 8px' : '5px 4px', display: 'inline-block' }}><IconStar size={isMobile ? 32 : 24} filled={star <= draftRating} /></span>
             ))}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -2244,8 +2632,8 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
       <div onClick={e => e.stopPropagation()} style={{
         position: 'relative',
         cursor: 'default',
-        width: bookOpen ? BW * 2 : BW,
-        transform: step > 0 ? 'translateY(-24px)' : 'translateY(115vh)',
+        width: isMobile ? BW : (bookOpen ? BW * 2 : BW),
+        transform: step > 0 ? (isMobile ? 'translateY(0)' : 'translateY(-24px)') : 'translateY(115vh)',
         transition: [
           'width .62s cubic-bezier(.34,1.2,.5,1)',
           step === 0
@@ -2257,42 +2645,63 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
         {/* Book container */}
         <div style={{ position: 'relative', width: '100%', height: BH, perspective: '1700px' }}>
 
-          {/* Right page — description. When turner is active it's preloaded behind the turner. */}
+          {/* Right page — desktop: static right-half content (preloaded behind the turner).
+              Mobile: THE page — renders the current single page's content, interactive. */}
           <div style={{
             position: 'absolute', right: 0, top: 0, width: BW, height: BH,
             background: '#FDF8EF',
-            borderRadius: '0 10px 10px 0',
-            boxShadow: 'inset 14px 0 22px -12px rgba(0,0,0,0.08)',
+            borderRadius: isMobile ? 10 : '0 10px 10px 0',
+            boxShadow: isMobile ? '0 22px 56px rgba(0,0,0,0.4)' : 'inset 14px 0 22px -12px rgba(0,0,0,0.08)',
             padding: '24px', zIndex: 1,
             display: 'flex', flexDirection: 'column', gap: 10,
             opacity: bookOpen ? 1 : 0,
-            transition: bookOpen ? 'opacity 0s' : 'opacity 0s .84s',
+            cursor: 'default',
+            transition: isMobile ? 'opacity .3s ease' : (bookOpen ? 'opacity 0s' : 'opacity 0s .84s'),
           }}>
-            {rightDP === 1 && reviewPageContent(false)}
-            {rightDP === 2 && <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', color: '#606078' }}>Find This Book</div>
-              {bookLinks.map(({ section, items }) => (
-                <div key={section} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                  <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: 10, fontWeight: 600, letterSpacing: 0.8, textTransform: 'uppercase', color: '#8888A0', marginBottom: 2 }}>{section}</div>
-                  {items.map(({ label, icon, url }) => (
-                    <a key={label} href={url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 7, fontFamily: "'Manrope', sans-serif", fontSize: 12, color: '#2C2C3E', textDecoration: 'none', padding: '2px 0', borderBottom: '1px solid rgba(100,100,140,0.15)' }}>
-                      {icon}
-                      <span>{label}</span>
-                    </a>
-                  ))}
-                </div>
-              ))}
-            </div>}
+            {isMobile ? <>
+              {overlayPage === 1 && <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto' }}>
+                <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: 28, fontWeight: 700, lineHeight: 1.12, color: '#1C1C2E' }}>{selected.title}</div>
+                <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: 16, fontWeight: 700, color: accent }}>{selected.author}</div>
+                {yearGenre ? <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: 13, color: '#606078' }}>{yearGenre}</div> : null}
+                {shelfLabel ? <div style={{ fontFamily: "'Manrope', sans-serif", fontStyle: 'italic', fontSize: 13, color: '#8888A0' }}>From the {shelfLabel} shelf</div> : null}
+                {isViewOnly && (
+                  <button
+                    onClick={async e => {
+                      e.stopPropagation()
+                      if (!viewerUserId || !selected) return
+                      await addInventoryBook(viewerUserId, selected)
+                      window.location.href = window.location.origin + window.location.pathname + '?skipIntro=1&edit=1'
+                    }}
+                    style={{
+                      alignSelf: 'flex-start', background: '#254CA4', color: '#FDF8EF',
+                      border: 'none', borderRadius: 8, padding: '10px 16px',
+                      fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 14,
+                      cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6,
+                    }}
+                  >Add to my shelf →</button>
+                )}
+                {bodyLabel && <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', color: '#606078', marginTop: 8 }}>{bodyLabel}</div>}
+                <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: 13, lineHeight: 1.65, color: bodyText ? '#2C2C3E' : '#8888A0', fontStyle: bodyText ? 'normal' : 'italic' }}>{bodyText || 'No description provided.'}</div>
+              </div>}
+              {overlayPage === 2 && reviewPageContent(!isViewOnly)}
+              {overlayPage === 3 && linksPageContent}
+            </> : <>
+              {rightDP === 1 && reviewPageContent(false)}
+              {rightDP === 2 && linksPageContent}
+            </>}
           </div>
 
           {/* Cover — portrait: fills left:0; spread: slides to right half (left:BW) and flips
                around its LEFT edge (spine at x=BW) so the inner left page lands on the left. */}
           <div style={{
-            position: 'absolute', left: bookOpen ? BW : 0, top: 0, width: BW, height: BH,
+            position: 'absolute', left: (bookOpen && !isMobile) ? BW : 0, top: 0, width: BW, height: BH,
             transformStyle: 'preserve-3d',
             transformOrigin: 'left center',
-            transform: bookOpen ? 'rotateY(-158deg)' : 'rotateY(0deg)',
-            transition: 'left .62s cubic-bezier(.34,1.2,.5,1), transform .70s cubic-bezier(.5,0,.3,1) .14s',
+            transform: (bookOpen && !isMobile) ? 'rotateY(-158deg)' : 'rotateY(0deg)',
+            // Mobile: no spread — the cover cross-fades out and the single page shows beneath
+            opacity: (bookOpen && isMobile) ? 0 : 1,
+            pointerEvents: (bookOpen && isMobile) ? 'none' : 'auto',
+            transition: 'left .62s cubic-bezier(.34,1.2,.5,1), transform .70s cubic-bezier(.5,0,.3,1) .14s, opacity .3s ease',
             zIndex: 3,
           }}>
             {/* Cover face — thumbnail if available, otherwise styled colour cover. Spine colour shows as placeholder while img loads. */}
@@ -2346,8 +2755,8 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
             </div>
           </div>
 
-          {/* 3D page-turn overlay — pivots from the spine, mirrors the cover animation */}
-          {turnerVisible && (() => {
+          {/* 3D page-turn overlay — pivots from the spine, mirrors the cover animation. Desktop only. */}
+          {!isMobile && turnerVisible && (() => {
             const frontPage = turnerDir === 'forward' ? turnerFromPage : overlayPage
             const backPage  = turnerDir === 'forward' ? overlayPage    : turnerFromPage
             const turnerTransform = turnerDir === 'forward'
@@ -2478,33 +2887,38 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
             <line x1="12"  y1="24"  x2="34"  y2="-62"  stroke="#72FF5D" strokeWidth="18" strokeLinecap="round" />
           </svg>
 
-          {/* Left click zone — previous page (bottom strip only, clears content area) */}
+          {/* Left click zone — previous page (bottom strip only, clears content area). Desktop only —
+              on mobile the full-width single page owns these areas; flipping uses the arrow buttons. */}
           <div
             onMouseEnter={() => setHoverArea('left')}
             onMouseLeave={() => setHoverArea(null)}
             onClick={e => { e.stopPropagation(); if (overlayPage > 0 && !turnerVisible) goToPage(overlayPage - 1) }}
-            style={{ position: 'absolute', left: 0, bottom: 0, width: '50%', height: '26%', zIndex: 25, cursor: overlayPage > 0 && !turnerVisible ? 'pointer' : 'default', pointerEvents: overlayPage > 0 ? 'auto' : 'none' }}
+            style={{ position: 'absolute', left: 0, bottom: 0, width: '50%', height: '26%', zIndex: 25, cursor: overlayPage > 0 && !turnerVisible ? 'pointer' : 'default', pointerEvents: !isMobile && overlayPage > 0 ? 'auto' : 'none' }}
           />
 
-          {/* Right click zone — next page (bottom strip only) */}
+          {/* Right click zone — next page (bottom strip only). Desktop only. */}
           <div
             onMouseEnter={() => setHoverArea('right')}
             onMouseLeave={() => setHoverArea(null)}
-            onClick={e => { e.stopPropagation(); if (overlayPage < 2 && !turnerVisible) goToPage(overlayPage + 1) }}
-            style={{ position: 'absolute', right: 0, bottom: 0, width: '50%', height: '40%', zIndex: 25, pointerEvents: overlayPage < 2 && !turnerVisible && !(overlayPage === 1 && reviewMode === 'edit') ? 'auto' : 'none', cursor: overlayPage < 2 && !turnerVisible ? 'pointer' : 'default' }}
+            onClick={e => { e.stopPropagation(); if (overlayPage < MAX_PAGE && !turnerVisible) goToPage(overlayPage + 1) }}
+            style={{ position: 'absolute', right: 0, bottom: 0, width: '50%', height: '40%', zIndex: 25, pointerEvents: !isMobile && overlayPage < MAX_PAGE && !turnerVisible && !(overlayPage === 1 && reviewMode === 'edit') ? 'auto' : 'none', cursor: overlayPage < MAX_PAGE && !turnerVisible ? 'pointer' : 'default' }}
           />
 
-          {/* Arrow indicators — above all overlays so they're always visible */}
-          <div style={{ position: 'absolute', bottom: bookOpen ? -2 : 12, left: bookOpen ? 16 : 12, width: 32, height: 32, borderRadius: '50%', background: bookOpen ? 'rgba(0,0,0,0.08)' : 'rgba(0,0,0,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: bookOpen ? '#1C1C2E' : 'rgba(255,255,255,0.9)', pointerEvents: 'none', zIndex: 27, opacity: hoverArea === 'left' && overlayPage > 0 && !turnerVisible && reviewMode !== 'edit' ? 1 : 0, transition: 'opacity .18s ease' }}>
+          {/* Arrow indicators — desktop: hover-revealed hints; mobile: always-visible tap buttons */}
+          <div
+            onClick={isMobile ? (e => { e.stopPropagation(); if (overlayPage > 0) goToPage(overlayPage - 1) }) : undefined}
+            style={{ position: 'absolute', bottom: isMobile ? 10 : (bookOpen ? -2 : 12), left: isMobile ? 10 : (bookOpen ? 16 : 12), width: isMobile ? 44 : 32, height: isMobile ? 44 : 32, borderRadius: '50%', background: bookOpen ? 'rgba(0,0,0,0.10)' : 'rgba(0,0,0,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: bookOpen ? '#1C1C2E' : 'rgba(255,255,255,0.9)', cursor: isMobile ? 'pointer' : 'default', pointerEvents: isMobile && overlayPage > 0 && reviewMode !== 'edit' ? 'auto' : 'none', zIndex: 27, opacity: (isMobile ? overlayPage > 0 : hoverArea === 'left' && overlayPage > 0) && !turnerVisible && reviewMode !== 'edit' ? 1 : 0, transition: 'opacity .18s ease' }}>
             <svg width="8" height="14" viewBox="0 0 8 14" fill="none"><polyline points="6,1 1,7 6,13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
           </div>
-          <div style={{ position: 'absolute', bottom: 12, right: 12, width: 32, height: 32, borderRadius: '50%', background: bookOpen ? 'rgba(0,0,0,0.08)' : 'rgba(0,0,0,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: bookOpen ? '#1C1C2E' : 'rgba(255,255,255,0.9)', pointerEvents: 'none', zIndex: 27, opacity: hoverArea === 'right' && overlayPage < 2 && !turnerVisible && reviewMode !== 'edit' ? 1 : 0, transition: 'opacity .18s ease' }}>
+          <div
+            onClick={isMobile ? (e => { e.stopPropagation(); if (overlayPage < MAX_PAGE) goToPage(overlayPage + 1) }) : undefined}
+            style={{ position: 'absolute', bottom: isMobile ? 10 : 12, right: isMobile ? 10 : 12, width: isMobile ? 44 : 32, height: isMobile ? 44 : 32, borderRadius: '50%', background: bookOpen ? 'rgba(0,0,0,0.10)' : 'rgba(0,0,0,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: bookOpen ? '#1C1C2E' : 'rgba(255,255,255,0.9)', cursor: isMobile ? 'pointer' : 'default', pointerEvents: isMobile && overlayPage < MAX_PAGE && reviewMode !== 'edit' ? 'auto' : 'none', zIndex: 27, opacity: (isMobile ? overlayPage < MAX_PAGE : hoverArea === 'right' && overlayPage < MAX_PAGE) && !turnerVisible && reviewMode !== 'edit' ? 1 : 0, transition: 'opacity .18s ease' }}>
             <svg width="8" height="14" viewBox="0 0 8 14" fill="none"><polyline points="2,1 7,7 2,13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
           </div>
 
           {/* Interactive review panel — hidden during any turner animation; single source via reviewPageContent.
                zIndex:2 during initial book-open (behind cover), 26 once animation completes. */}
-          {displayPage === 1 && bookOpen && !turnerVisible && (
+          {!isMobile && displayPage === 1 && bookOpen && !turnerVisible && (
             <div style={{
               position: 'absolute', right: 0, top: 0, width: '50%', height: '100%',
               zIndex: bookAnimDone ? 26 : 2,
@@ -2526,13 +2940,15 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
           onMouseLeave={() => setPaginationHover(false)}
           style={{ position: 'absolute', bottom: -44, left: 0, right: 0, display: 'flex', gap: 10, justifyContent: 'center', alignItems: 'center', zIndex: 20, padding: '8px 0' }}
         >
-          <button onClick={() => { if (!turnerVisible) goToPage(Math.max(0, overlayPage - 1)) }} style={{ background: 'none', border: 'none', cursor: overlayPage > 0 && !turnerVisible ? 'pointer' : 'default', color: 'rgba(253,248,239,0.85)', padding: '4px 8px', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: paginationHover && overlayPage > 0 ? 1 : 0, transition: 'opacity .25s ease' }}>
+          <button onClick={() => { if (!turnerVisible) goToPage(Math.max(0, overlayPage - 1)) }} style={{ background: 'none', border: 'none', cursor: overlayPage > 0 && !turnerVisible ? 'pointer' : 'default', color: 'rgba(253,248,239,0.85)', padding: isMobile ? '13px 16px' : '4px 8px', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: (isMobile || paginationHover) && overlayPage > 0 ? 1 : 0, transition: 'opacity .25s ease' }}>
             <svg width="8" height="14" viewBox="0 0 8 14" fill="none"><polyline points="6,1 1,7 6,13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
           </button>
-          {[0, 1, 2].map(p => (
-            <button key={p} onClick={() => { if (!turnerVisible) goToPage(p) }} style={{ width: 9, height: 9, borderRadius: '50%', border: 'none', padding: 0, cursor: !turnerVisible ? 'pointer' : 'default', background: p === overlayPage ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.32)', transition: 'background .15s', flexShrink: 0 }} />
+          {Array.from({ length: MAX_PAGE + 1 }, (_, p) => (
+            <button key={p} onClick={() => { if (!turnerVisible) goToPage(p) }} style={{ width: isMobile ? 40 : 9, height: isMobile ? 40 : 9, background: 'none', border: 'none', padding: 0, cursor: !turnerVisible ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <span style={{ width: isMobile ? 12 : 9, height: isMobile ? 12 : 9, borderRadius: '50%', background: p === overlayPage ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.32)', transition: 'background .15s' }} />
+            </button>
           ))}
-          <button onClick={() => { if (!turnerVisible) goToPage(Math.min(2, overlayPage + 1)) }} style={{ background: 'none', border: 'none', cursor: overlayPage < 2 && !turnerVisible ? 'pointer' : 'default', color: 'rgba(253,248,239,0.85)', padding: '4px 8px', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: paginationHover && overlayPage < 2 ? 1 : 0, transition: 'opacity .25s ease' }}>
+          <button onClick={() => { if (!turnerVisible) goToPage(Math.min(MAX_PAGE, overlayPage + 1)) }} style={{ background: 'none', border: 'none', cursor: overlayPage < MAX_PAGE && !turnerVisible ? 'pointer' : 'default', color: 'rgba(253,248,239,0.85)', padding: isMobile ? '13px 16px' : '4px 8px', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: (isMobile || paginationHover) && overlayPage < MAX_PAGE ? 1 : 0, transition: 'opacity .25s ease' }}>
             <svg width="8" height="14" viewBox="0 0 8 14" fill="none"><polyline points="2,1 7,7 2,13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
           </button>
         </div>
@@ -2550,7 +2966,7 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
         }}>
           <div style={{
             background: '#FDF8EF', borderRadius: 14,
-            padding: '28px 24px 22px', width: 228, textAlign: 'center',
+            padding: '28px 24px 22px', width: 'min(228px, 88vw)', textAlign: 'center',
             boxShadow: '0 8px 32px rgba(25,36,61,0.6)',
             display: 'flex', flexDirection: 'column', gap: 14,
           }}>
@@ -2602,13 +3018,16 @@ function StalactitePreview({ scale, viewOffset = 0, clipH = 320 }) {
   )
 }
 
-function TitleScreen({ onDismiss, onReveal, scale }) {
+function TitleScreen({ onDismiss, onReveal, scale, fromSurface = false }) {
   const faceRef = useRef(null)
   const [irisOff, setIrisOff] = useState({ x: 0, y: 0 })
   const [exitPhase, setExitPhase] = useState(null) // null | 'duck' | 'reveal'
   const [hoveredLetter, setHoveredLetter] = useState(null)
   const [btnHover, setBtnHover] = useState(false)
   const [isNear, setIsNear] = useState(false)
+  const [contentReady, setContentReady] = useState(!fromSurface)
+  const [contentEntered, setContentEntered] = useState(false)
+  const [monsterReady, setMonsterReady] = useState(!fromSurface)
 
   useEffect(() => {
     const MAX = 7
@@ -2630,11 +3049,22 @@ function TitleScreen({ onDismiss, onReveal, scale }) {
     return () => window.removeEventListener('mousemove', onMove)
   }, [])
 
+  useEffect(() => {
+    if (fromSurface) {
+      const t1 = setTimeout(() => { setContentReady(true); setContentEntered(true) }, 500)
+      const t2 = setTimeout(() => setMonsterReady(true), 700)
+      return () => { clearTimeout(t1); clearTimeout(t2) }
+    }
+    // Startup: slide content in from above immediately on mount
+    const raf = requestAnimationFrame(() => setContentEntered(true))
+    return () => cancelAnimationFrame(raf)
+  }, []) // eslint-disable-line
+
   function handleClick() {
     if (exitPhase) return
     setExitPhase('duck')
     setTimeout(() => { setExitPhase('reveal'); onReveal() }, 420)
-    setTimeout(onDismiss, 750)
+    // Dismiss timing is delegated to onReveal (fires after scroll completes)
   }
 
   const LETTERS = [
@@ -2651,23 +3081,24 @@ function TitleScreen({ onDismiss, onReveal, scale }) {
   const ox = irisOff.x * (325 / 226)
   const oy = irisOff.y * (331 / 230)
 
-  const ducking = exitPhase === 'duck' || exitPhase === 'reveal'
+  const ducking = exitPhase === 'duck' || exitPhase === 'reveal' || !monsterReady
+  const isMobileTitle = window.innerWidth < 768
   const outerStyle = (z) => ({
     position: 'absolute', bottom: 0, left: '50%',
     width: 'min(100vw, 96vh)',
     transform: ducking
       ? 'translateX(-50%) translateY(110%)'
       : isNear
-        ? 'translateX(-50%) translateY(74%)'
-        : 'translateX(-50%) translateY(66%)',
+        ? `translateX(-50%) translateY(${isMobileTitle ? 55 : 74}%)`
+        : `translateX(-50%) translateY(${isMobileTitle ? 38 : 66}%)`,
     transition: 'transform 0.42s cubic-bezier(.34,1,.5,1)',
     pointerEvents: 'none', zIndex: z,
   })
   const breathStyle = { animation: 'tomaBreath 3.5s ease-in-out infinite', transformOrigin: 'center bottom' }
 
   return (
-    <div style={{
-      height: '100vh', position: 'relative',
+    <div className="fill-viewport" style={{
+      position: 'relative',
       background: '#254CA4',
       overflow: 'hidden',
       fontFamily: "'Manrope', sans-serif",
@@ -2694,6 +3125,9 @@ function TitleScreen({ onDismiss, onReveal, scale }) {
         position: 'absolute', top: '4vh', left: 0, right: 0,
         display: 'flex', flexDirection: 'column', alignItems: 'center',
         gap: 14, zIndex: 2,
+        opacity: (contentReady && !exitPhase) ? 1 : 0,
+        transform: contentEntered ? 'translateY(0)' : 'translateY(-80px)',
+        transition: 'opacity 0.4s ease, transform 0.65s cubic-bezier(0.22,1,0.36,1)',
       }}>
         {/* Letter row in a fixed-height container so hover pops don't shift subtitle */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.01em', height: 'clamp(72px, 15.5vw, 215px)' }}>
@@ -2814,20 +3248,21 @@ function OnboardingOverlay({ onSubmit }) {
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(25,36,61,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Manrope', sans-serif" }}>
-      <div style={{ background: '#FDF8EF', borderRadius: 20, padding: '40px 36px', width: 360, boxShadow: '0 8px 40px rgba(0,0,0,0.3)' }}>
+      <div style={{ background: '#FDF8EF', borderRadius: 20, padding: '40px min(36px, 6vw)', width: 'min(360px, 92vw)', boxSizing: 'border-box', boxShadow: '0 8px 40px rgba(0,0,0,0.3)' }}>
         <div style={{ fontSize: 22, fontWeight: 800, color: '#1C1C2E', marginBottom: 6 }}>Welcome to TOMA!</div>
         <div style={{ fontSize: 14, color: '#666680', marginBottom: 28 }}>Let's set up your bookshelf.</div>
 
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: '#1C1C2E', marginBottom: 6 }}>Bookshelf name</div>
+          {/* 16px inputs: below 16px, iOS Safari auto-zooms the page on focus */}
           <input value={shelfName} onChange={e => setShelfName(e.target.value)} placeholder="e.g. My Reading Nook"
-            style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: '1.5px solid #C4C4D4', fontSize: 14, fontFamily: "'Manrope', sans-serif", color: '#1C1C2E', background: '#FDF8EF', outline: 'none' }} />
+            style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: '1.5px solid #C4C4D4', fontSize: 16, fontFamily: "'Manrope', sans-serif", color: '#1C1C2E', background: '#FDF8EF', outline: 'none' }} />
         </div>
 
         <div style={{ marginBottom: 28 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: '#1C1C2E', marginBottom: 6 }}>Your name</div>
           <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Alex"
-            style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: '1.5px solid #C4C4D4', fontSize: 14, fontFamily: "'Manrope', sans-serif", color: '#1C1C2E', background: '#FDF8EF', outline: 'none' }} />
+            style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: '1.5px solid #C4C4D4', fontSize: 16, fontFamily: "'Manrope', sans-serif", color: '#1C1C2E', background: '#FDF8EF', outline: 'none' }} />
         </div>
 
         <button
@@ -2857,7 +3292,9 @@ export default function App() {
       !p.get('shelf')
   })
   const [hoveredId, setHoveredId] = useState(null)
-  const [target, setTarget] = useState(null)
+  // Note: cursor-tracking arm follows displayTarget directly (RAF-throttled from the
+  // window pointermove listener below). No intermediate `target` state — an earlier
+  // version had one but nothing read it, so it just triggered extra re-renders.
   const [displayTarget, setDisplayTarget] = useState(null)
   const [selected, setSelected] = useState(null)
   const [openPhase, setOpenPhase] = useState('closed')
@@ -2865,6 +3302,7 @@ export default function App() {
   const headDuckTimerRef = useRef(null)
   const descCacheRef = useRef({})
   const [scale, setScale] = useState(1)
+  const scaleRef = useRef(1)
   // armGRef removed — forearm SVG now lives inside stageRef and scrolls natively
 
   // Grab animation state
@@ -2898,6 +3336,17 @@ export default function App() {
     setShelfConfigs(prev => [...prev, { id, label, colorKey, items: [] }])
     setShelfContents(prev => [...prev, []])
   }
+  function reorderShelf(fromIdx, toIdx) {
+    if (fromIdx === toIdx || fromIdx < 0 || toIdx < 0) return
+    const move = arr => {
+      const next = [...arr]
+      const [it] = next.splice(fromIdx, 1)
+      next.splice(toIdx, 0, it)
+      return next
+    }
+    setShelfConfigs(move)
+    setShelfContents(move)
+  }
 
   // ── DB / persistence ───────────────────────────────────────────────────────
   const _urlParams  = new URLSearchParams(window.location.search)
@@ -2922,13 +3371,38 @@ export default function App() {
   const headRef = useRef(null)
   const deleteBtnRef = useRef(null)
   const [deleteBtnRect, setDeleteBtnRect] = useState(null)
+  const rotateBtnRef = useRef(null)
+  const wasOverRotateRef = useRef(false) // touch: edge-detect entry into the rotate zone
   const [showShareModal, setShowShareModal] = useState(false)
   const [linkCopied, setLinkCopied]         = useState(false)
   const [headerVisible, setHeaderVisible]   = useState(true)
+  const [nearTop, setNearTop]               = useState(false)
+  const [surfacing, setSurfacing]           = useState(false)
+  const [titleFromSurface, setTitleFromSurface] = useState(false)
+  const [isMobile, setIsMobile]             = useState(() => window.innerWidth < 768)
+  // Books stay proportional (fixed shelf height) at every breakpoint; on mobile we
+  // deliver "one shelf at a time" via a larger zoom + horizontal pan, not by stretching shelves.
+  const [shelfH, setShelfH]               = useState(SHELF_H)
+  // Mobile user-controlled zoom multiplier (the +/- buttons), applied on top of the base
+  // one-shelf-focus zoom. Pinch is disabled, so these buttons are how the user rescales.
+  // Mobile two-state zoom: false = full-bookshelf view (fit width), true = one-shelf
+  // detail view (pan within a shelf). Toggled by the single magnifier button.
+  const [zoomedIn, setZoomedIn]           = useState(false)
+  const zoomedInRef = useRef(false)
+  const dragAutoZoomRef = useRef(false)
+  const dragGrabAnchorRef = useRef(null)
+  const pendingZoomStartRef = useRef(null)
+  const scaleAnimatingRef = useRef(false)
+  const scaleAnimRafRef = useRef(null)
+  const bookcaseLayerRef = useRef(null)   // the shiftable layer holding bookshelf + head + arm
+  const bookcaseShiftRef = useRef(0)      // current bookcase-layer top offset (stage units)
+  const stageHeightRef = useRef(0)        // rendered stage height, mirrors render-derived value
+  const [scaleTransitioning, setScaleTransitioning] = useState(false)
   const [viewerHasOwnShelf, setViewerHasOwnShelf] = useState(false)
   const [inventory, setInventory]           = useState([])
   const [viewerUserId, setViewerUserId]     = useState(null)
   const lastScrollY = useRef(0)
+  const prevZoomedInRef = useRef(false)
   const reviewsRef   = useRef(new Map())
   const saveTimerRef = useRef(null)
 
@@ -2941,6 +3415,7 @@ export default function App() {
   const [dropTarget, setDropTarget] = useState(null)
   const [showBookPanel, setShowBookPanel] = useState(false)
   const [showDecorPanel, setShowDecorPanel] = useState(false)
+  const [showShelfList, setShowShelfList] = useState(false)  // mobile shelf manager sheet
   const [stackBooks, setStackBooks] = useState([])
   const shelfInnerRefs = useRef([])
   const ghostRef = useRef(null)
@@ -2956,6 +3431,301 @@ export default function App() {
   const stageRef = useRef(null)
   const containerRef = useRef(null)
   const scrollRef = useRef(null)
+
+  // Map viewport coords to in-stage coords. X uses container centering when zoomed out;
+  // Y always uses the stage rect top (container top diverges on tall scrolled zoom trees).
+  function shelfBookcaseBottom() {
+    const cached = bookcaseBottomRef.current
+    if (cached > 200) return cached
+    const n = Math.max(1, shelfContentsRef.current.length)
+    return 196 + n * (SHELF_H + 20)
+  }
+
+  // Measured stage geometry normalized to viewport (visual) space. Engines disagree on
+  // getBoundingClientRect for a CSS-zoomed element: some return the visual box
+  // (zoom-multiplied), others return the element's own coordinate space (unzoomed, with
+  // even left/top divided by zoom). Detect which convention is in use by checking which
+  // interpretation the measured width matches, then normalize.
+  function stageMetrics() {
+    const el = stageRef.current
+    if (!el) return null
+    const r = el.getBoundingClientRect()
+    if (r.width <= 0 || r.height <= 0) return null
+    const z = scaleRef.current > 0 ? scaleRef.current : 1
+    const stageH = stageHeightRef.current > 0
+      ? stageHeightRef.current
+      : Math.max(960, shelfBookcaseBottom() + 140)
+    const ownSpace = Math.abs(r.width - 1080) < Math.abs(r.width - 1080 * z)
+    if (ownSpace) {
+      // rectZoom converts a measured rect of any element inside the stage to visual space.
+      return { left: r.left * z, top: r.top * z, width: 1080 * z, height: stageH * z, sx: z, sy: z, rectZoom: z }
+    }
+    return { left: r.left, top: r.top, width: r.width, height: r.height, sx: r.width / 1080, sy: r.height / stageH, rectZoom: 1 }
+  }
+
+  // Multiplier that converts getBoundingClientRect values of in-stage elements to
+  // visual (event clientX/clientY) space. 1 on legacy engines; the stage zoom on
+  // engines that return zoom-divided rects.
+  function stageRectZoom() {
+    const m = stageMetrics()
+    return m ? m.rectZoom : 1
+  }
+
+  // getBoundingClientRect of an element inside the zoomed stage, normalized to visual
+  // space so it can be compared against event clientX/clientY.
+  function visualRect(el) {
+    const r = el.getBoundingClientRect()
+    const rz = stageRectZoom()
+    if (rz === 1) return r
+    return {
+      left: r.left * rz, top: r.top * rz, right: r.right * rz, bottom: r.bottom * rz,
+      width: r.width * rz, height: r.height * rz,
+    }
+  }
+
+  function clientToStage(clientX, clientY, aimHand = false) {
+    const m = stageMetrics()
+    if (!m) return null
+
+    let originLeft = m.left
+    if (isMobileRef.current && !zoomedInRef.current && containerRef.current) {
+      // Container is outside the zoom subtree — its rect is always visual-space.
+      const cr = containerRef.current.getBoundingClientRect()
+      originLeft = cr.left + (cr.width - m.width) / 2
+    }
+
+    let x = (clientX - originLeft) / m.sx
+    // Bookcase layer coords: the layer is shifted down inside the stage for vertical
+    // centering, and the arm/head live inside that layer.
+    let y = (clientY - m.top) / m.sy - bookcaseShiftRef.current
+
+    if (aimHand) { x -= 20; y -= 24 }
+    const floor = shelfBookcaseBottom()
+    y = Math.max(196, Math.min(floor + 36, y))
+    return { x, y }
+  }
+
+  function trackArmTarget(pos) {
+    const from = displayTargetRef.current
+    const dy = from ? Math.abs(pos.y - from.y) : 0
+    // Large jumps (tap on a distant shelf) glide; continuous finger-follow stays snappy.
+    const tau = dy > 400 ? 0.5 : dy > 200 ? 0.4 : dy > 80 ? 0.24 : mobileArmSmoothTau()
+    lerpArmTarget(pos, tau)
+  }
+
+  const clientToStageRef = useRef(clientToStage)
+  clientToStageRef.current = clientToStage
+  const trackArmTargetRef = useRef(trackArmTarget)
+  trackArmTargetRef.current = trackArmTarget
+
+  // Raw viewport→stage mapping without the hand-aim offset or floor clamp — used for
+  // zoom anchors, where clamping would make the anchor disagree with the actual scroll.
+  // Returns bookcase-layer coords (same space as clientToStage).
+  function clientToStageRaw(clientX, clientY) {
+    const m = stageMetrics()
+    if (!m) return null
+    let x
+    if (isMobileRef.current && !zoomedInRef.current && containerRef.current) {
+      const cr = containerRef.current.getBoundingClientRect()
+      x = (clientX - (cr.left + (cr.width - m.width) / 2)) / m.sx
+    } else {
+      x = (clientX - m.left) / m.sx
+    }
+    return { x, y: (clientY - m.top) / m.sy - bookcaseShiftRef.current }
+  }
+
+  function viewportCenterAnchor() {
+    const scrollEl = scrollRef.current
+    if (!scrollEl) return null
+    const r = scrollEl.getBoundingClientRect()
+    const cx = r.left + scrollEl.clientWidth / 2
+    const cy = r.top + scrollEl.clientHeight / 2
+    const pos = clientToStageRaw(cx, cy)
+    if (!pos) return null
+    return { clientX: cx, clientY: cy, stageX: pos.x, stageY: pos.y }
+  }
+
+  // Vertical centering: the stage (cave) stays pinned to the top of the screen and is
+  // stretched to fill it; the bookcase layer inside the stage shifts down so the
+  // bookshelf sits vertically centered. Shift is scale-dependent, reaching 0 once the
+  // bookshelf outgrows the screen, so it animates naturally with zoom transitions.
+  function mobileViewPad() {
+    return (isMobileRef.current && isViewOnly) ? MOBILE_HEADER_PAD : 0
+  }
+
+  function bookcaseShiftAt(sc) {
+    if (!isMobileRef.current || sc <= 0) return 0
+    const scrollEl = scrollRef.current
+    const h = (scrollEl ? scrollEl.clientHeight : window.innerHeight) - mobileViewPad()
+    const bc = shelfBookcaseBottom()
+    return Math.max(0, Math.round(h / (2 * sc) - (176 + bc) / 2))
+  }
+
+  function maxScrollTopAt(sc) {
+    const scrollEl = scrollRef.current
+    if (!scrollEl) return 0
+    const stageH = stageHeightRef.current > 0
+      ? stageHeightRef.current
+      : Math.max(960, shelfBookcaseBottom() + 140)
+    return Math.max(0, mobileViewPad() + stageH * sc - scrollEl.clientHeight)
+  }
+
+  // Scroll offsets that keep `anchor`'s bookcase-layer point under its viewport position
+  // at scale `sc`. Valid in the zoomed-in (flex-start) layout where stage x=0 sits at the
+  // scrollport's left edge when scrollLeft is 0.
+  function zoomAnchorScroll(anchor, sc) {
+    const scrollEl = scrollRef.current
+    if (!scrollEl || !anchor) return null
+    const r = scrollEl.getBoundingClientRect()
+    return {
+      left: r.left + anchor.stageX * sc - anchor.clientX,
+      top: r.top + mobileViewPad() + (anchor.stageY + bookcaseShiftAt(sc)) * sc - anchor.clientY,
+    }
+  }
+
+  function applyBookcaseShift(px) {
+    bookcaseShiftRef.current = px
+    if (bookcaseLayerRef.current) bookcaseLayerRef.current.style.top = `${px}px`
+  }
+
+  function cancelScaleAnim() {
+    if (!scaleAnimRafRef.current) return
+    cancelAnimationFrame(scaleAnimRafRef.current)
+    scaleAnimRafRef.current = null
+    scaleAnimatingRef.current = false
+    setScaleTransitioning(false)
+    if (stageRef.current) stageRef.current.style.zoom = String(scaleRef.current)
+    applyBookcaseShift(bookcaseShiftAt(scaleRef.current))
+  }
+
+  // Animate CSS zoom from→to while scrolling so `anchor` stays put on screen. Per frame
+  // the scroll follows the anchor exactly, plus an eased correction toward `endScroll`
+  // (the clamped final position) so clamp differences are absorbed smoothly, not jumped.
+  function animateMobileScale(from, to, anchor, endScroll, onDone) {
+    cancelScaleAnim()
+    scaleAnimatingRef.current = true
+    setScaleTransitioning(true)
+    const duration = 560
+    const stageEl = stageRef.current
+    const endRaw = zoomAnchorScroll(anchor, to)
+    const corrL = endRaw ? endScroll.left - endRaw.left : 0
+    const corrT = endRaw ? endScroll.top - endRaw.top : 0
+    let t0 = null
+
+    function step(ts) {
+      if (!t0) t0 = ts
+      const p = Math.min(1, (ts - t0) / duration)
+      // Smootherstep — zero 1st/2nd derivative at endpoints (no abrupt start/stop).
+      const eased = p * p * p * (p * (p * 6 - 15) + 10)
+      const s = from + (to - from) * eased
+      scaleRef.current = s
+
+      // DOM-only zoom + bookcase-layer shift during the transition — avoids re-rendering
+      // the whole tree each frame.
+      if (stageEl) stageEl.style.zoom = String(s)
+      if (isMobileRef.current) applyBookcaseShift(bookcaseShiftAt(s))
+
+      const scrollEl = scrollRef.current
+      const a = zoomAnchorScroll(anchor, s)
+      if (scrollEl && a) {
+        scrollEl.scrollLeft = a.left + corrL * eased
+        scrollEl.scrollTop = a.top + corrT * eased
+      }
+
+      if (p < 1) {
+        scaleAnimRafRef.current = requestAnimationFrame(step)
+      } else {
+        scaleAnimRafRef.current = null
+        scaleAnimatingRef.current = false
+        // Keep the final zoom applied — React re-writes the same value on the next
+        // commit. Clearing it here can paint one frame at zoom:1 (visible glitch).
+        if (stageEl) stageEl.style.zoom = String(to)
+        setScaleTransitioning(false)
+        setScale(to)
+        onDone?.()
+      }
+    }
+    scaleAnimRafRef.current = requestAnimationFrame(step)
+  }
+
+  // Zoom into detail view keeping `anchor` fixed under the finger / viewport point.
+  function startMobileZoomIn(anchor, onReady) {
+    const fromScale = scaleRef.current
+    const scrollEl = scrollRef.current
+    const w = scrollEl?.clientWidth ?? window.innerWidth
+    const toScale = computeMobileScale(true, w)
+    scaleAnimatingRef.current = true
+    setScaleTransitioning(true)
+    zoomedInRef.current = true
+
+    // Final resting scroll: anchor position clamped to the shelf pan bounds.
+    const endRaw = zoomAnchorScroll(anchor, toScale) ?? { left: 0, top: 0 }
+    let endLeft = endRaw.left
+    if (scrollEl) {
+      const { min, max } = mobileShelfScrollBounds(scrollEl, toScale)
+      endLeft = Math.max(min, Math.min(max, endLeft))
+    }
+    const endTop = Math.min(Math.max(0, endRaw.top), maxScrollTopAt(toScale))
+
+    // The layout flip (centered → flex-start) happens on this state change; the paired
+    // layout effect applies the equivalent scroll before paint, then starts the animation.
+    pendingZoomStartRef.current = {
+      scroll: zoomAnchorScroll(anchor, fromScale),
+      run: () => animateMobileScale(fromScale, toScale, anchor, { left: endLeft, top: endTop }, onReady),
+    }
+    setZoomedIn(true)
+  }
+
+  // Zoom back out to the full-bookshelf view. Ends exactly on the centered zoomed-out
+  // framing so the layout flip afterwards is visually a no-op.
+  function startMobileZoomOut(onDone) {
+    const scrollEl = scrollRef.current
+    const w = scrollEl?.clientWidth ?? window.innerWidth
+    const fromScale = scaleRef.current
+    const toScale = computeMobileScale(false, w)
+    const anchor = viewportCenterAnchor()
+    const finish = () => {
+      zoomedInRef.current = false
+      setZoomedIn(false)
+      onDone?.()
+    }
+    if (!anchor) { finish(); return }
+    // Centered-layout equivalent: stage cropped equally left/right; keep the anchor's row in view.
+    const endLeft = Math.max(0, (1080 * toScale - w) / 2)
+    const endRaw = zoomAnchorScroll(anchor, toScale)
+    const endTop = Math.min(Math.max(0, endRaw ? endRaw.top : 0), maxScrollTopAt(toScale))
+    animateMobileScale(fromScale, toScale, anchor, { left: endLeft, top: endTop }, finish)
+  }
+
+  function toggleMobileZoom() {
+    if (scaleAnimatingRef.current) return
+    if (zoomedInRef.current) {
+      startMobileZoomOut()
+    } else {
+      const anchor = viewportCenterAnchor()
+      if (anchor) startMobileZoomIn(anchor)
+      else setZoomedIn(true)
+    }
+  }
+
+  function ensureMobileDragZoom(clientX, clientY, onReady) {
+    if (!isMobileRef.current || zoomedInRef.current) {
+      dragAutoZoomRef.current = false
+      return false
+    }
+    const grabPos = clientToStageRaw(clientX, clientY)
+    if (!grabPos) return false
+    dragAutoZoomRef.current = true
+    dragGrabAnchorRef.current = { clientX, clientY, stageX: grabPos.x, stageY: grabPos.y }
+    startMobileZoomIn(dragGrabAnchorRef.current, onReady)
+    return true
+  }
+
+  function mobileArmSmoothTau() {
+    if (isEditModeRef.current) return 0.18
+    return zoomedInRef.current ? 0.16 : 0.13
+  }
+
   const [scrollUnlocked, setScrollUnlocked] = useState(false)
   const GAP_VH = 80
   const closeTimer = useRef(null)
@@ -2981,7 +3751,99 @@ export default function App() {
   const retractModeRef = useRef(0)
   const lastMousePosRef = useRef(null)    // last known cursor in stage-local coords
   const viewportMouseRef = useRef(null)   // last known cursor in raw viewport coords
+  const bookcaseBottomRef = useRef(0)     // stage-coord bookcase floor, mirrors render-derived bookcaseBottom
+  const armGoalRef = useRef(null)         // unified lerp goal for arm tracking
+  const armLerpRafRef = useRef(null)
+  const armLerpTauRef = useRef(0.34)
+  const armLerpLastTsRef = useRef(null)
+  const armLerpContinueRef = useRef(() => true)
+  const isMobileRef = useRef(false)
+  const headGoalRef = useRef({ left: 630, top: 200, rotate: 0 })
   const [hoveredShelfIdx, setHoveredShelfIdx] = useState(null)
+
+  // Glide the arm toward a goal instead of snapping. Used for scroll, mobile touch
+  // (browse + edit), and desktop mouse stays direct/snappy.
+  // tau = seconds to close ~63% of the gap (exponential ease); frame-rate independent.
+  function lerpArmTarget(goal, tau = 0.34, shouldContinue = null) {
+    armGoalRef.current = goal
+    armLerpTauRef.current = tau
+    armLerpContinueRef.current = shouldContinue ?? (() => true)
+    if (armLerpRafRef.current) return
+    armLerpLastTsRef.current = null
+    function step(ts) {
+      if (!armLerpContinueRef.current()) {
+        armLerpRafRef.current = null
+        armLerpLastTsRef.current = null
+        return
+      }
+      const tgt = armGoalRef.current
+      const from = displayTargetRef.current
+      if (!tgt) { armLerpRafRef.current = null; armLerpLastTsRef.current = null; return }
+      if (!from) {
+        displayTargetRef.current = { ...tgt }
+        setDisplayTarget({ ...tgt })
+        armLerpRafRef.current = null
+        armLerpLastTsRef.current = null
+        return
+      }
+      if (armLerpLastTsRef.current == null) armLerpLastTsRef.current = ts
+      const dt = Math.min(48, ts - armLerpLastTsRef.current) / 1000
+      armLerpLastTsRef.current = ts
+      const a = 1 - Math.exp(-dt / Math.max(0.08, armLerpTauRef.current))
+      const next = {
+        x: from.x + (tgt.x - from.x) * a,
+        y: from.y + (tgt.y - from.y) * a,
+      }
+      if (Math.hypot(next.x - tgt.x, next.y - tgt.y) < 1.2) {
+        displayTargetRef.current = { ...tgt }
+        setDisplayTarget({ ...tgt })
+        armLerpRafRef.current = null
+        armLerpLastTsRef.current = null
+        return
+      }
+      displayTargetRef.current = next
+      setDisplayTarget({ ...next })
+      armLerpRafRef.current = requestAnimationFrame(step)
+    }
+    armLerpRafRef.current = requestAnimationFrame(step)
+  }
+
+  useEffect(() => { isMobileRef.current = isMobile }, [isMobile])
+  useEffect(() => { zoomedInRef.current = zoomedIn }, [zoomedIn])
+
+  // Stage zoom + bookcase-layer shift are applied imperatively on every commit (no dep
+  // array): during the zoom animation scaleRef is driven per-frame, and any React
+  // re-render in between (arm lerp, drag state) would otherwise paint a stale value.
+  useLayoutEffect(() => {
+    if (!scaleAnimatingRef.current) scaleRef.current = scale
+    if (stageRef.current) stageRef.current.style.zoom = String(scaleRef.current)
+    if (isMobile) applyBookcaseShift(bookcaseShiftAt(scaleRef.current))
+    else applyBookcaseShift(0)
+  })
+
+  // Zoom-in starts with a layout flip (centered → flex-start). Apply the equivalent
+  // scroll before paint so the flip is invisible, then start the scale animation.
+  useLayoutEffect(() => {
+    if (!zoomedIn) return
+    const pending = pendingZoomStartRef.current
+    if (!pending) return
+    pendingZoomStartRef.current = null
+    const scrollEl = scrollRef.current
+    if (scrollEl && pending.scroll) {
+      scrollEl.scrollLeft = pending.scroll.left
+      scrollEl.scrollTop = pending.scroll.top
+    }
+    pending.run()
+  }, [zoomedIn])
+
+  // Restore zoomed-out view after a drag that auto-zoomed in for placement precision.
+  useEffect(() => {
+    if (editDragging !== null) return
+    if (!dragAutoZoomRef.current) return
+    dragAutoZoomRef.current = false
+    startMobileZoomOut()
+  }, [editDragging])
+  useEffect(() => { if (!scaleAnimatingRef.current) scaleRef.current = scale }, [scale])
 
   useEffect(() => {
     SHELVES.flatMap(s => s.items).forEach(item => {
@@ -3007,19 +3869,135 @@ export default function App() {
   }, [shelfContents])
 
   useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 768)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  useEffect(() => {
     function updateScale() {
-      // Use the container's actual clientWidth so a vertical scrollbar doesn't shift centering
-      const w = containerRef.current ? containerRef.current.clientWidth : window.innerWidth
-      setScale(Math.max(0.45, Math.min(2.5, w / 1080)))
+      // Skip while an animated zoom drives scale imperatively.
+      if (scaleAnimatingRef.current) return
+      // Mobile scale is off viewport width (containerRef sizes to content on mobile).
+      // Desktop scale uses containerRef's clientWidth so scrollbars don't shift centering.
+      const w = isMobile
+        ? (scrollRef.current ? scrollRef.current.clientWidth : window.innerWidth)
+        : (containerRef.current ? containerRef.current.clientWidth : window.innerWidth)
+      let s
+      if (isMobile) {
+        s = computeMobileScale(zoomedIn, w)
+      } else {
+        s = Math.max(0.45, Math.min(2.5, w / 1080))
+      }
+      setScale(s)
+      setShelfH(SHELF_H)
     }
     updateScale()
     // Also update when scrollbar appears/disappears (content height changes)
-    const ro = typeof ResizeObserver !== 'undefined' && containerRef.current
+    const observed = isMobile ? scrollRef.current : containerRef.current
+    const ro = typeof ResizeObserver !== 'undefined' && observed
       ? new ResizeObserver(updateScale)
       : null
-    if (ro && containerRef.current) ro.observe(containerRef.current)
+    if (ro && observed) ro.observe(observed)
     window.addEventListener('resize', updateScale)
     return () => { window.removeEventListener('resize', updateScale); ro?.disconnect() }
+  }, [isMobile, zoomedIn])
+
+  // Mobile horizontal scroll: locked when zoomed out; clamped to bookshelf edges when zoomed in.
+  useEffect(() => {
+    if (!isMobile) return
+    const el = scrollRef.current
+    if (!el) return
+    let clampRaf = null
+    function clampX() {
+      if (scaleAnimatingRef.current) return
+      if (!zoomedInRef.current) {
+        if (el.scrollLeft !== 0) el.scrollLeft = 0
+        return
+      }
+      const { min, max } = mobileShelfScrollBounds(el, scaleRef.current)
+      const x = el.scrollLeft
+      if (x < min) el.scrollLeft = min
+      else if (x > max) el.scrollLeft = max
+    }
+    function onScroll() {
+      if (scaleAnimatingRef.current) return
+      const top = el.scrollTop
+      if (!zoomedInRef.current) {
+        if (el.scrollLeft !== 0) el.scrollLeft = 0
+        return
+      }
+      // Defer clamp to rAF so we don't fight iOS momentum scroll every event tick.
+      if (!clampRaf) {
+        clampRaf = requestAnimationFrame(() => {
+          clampRaf = null
+          clampX()
+        })
+      }
+    }
+    function settleX() {
+      if (clampRaf) { cancelAnimationFrame(clampRaf); clampRaf = null }
+      clampX()
+    }
+    onScroll()
+    el.addEventListener('scroll', onScroll, { passive: true })
+    el.addEventListener('touchend', settleX, { passive: true })
+    el.addEventListener('scrollend', settleX, { passive: true })
+    return () => {
+      el.removeEventListener('scroll', onScroll)
+      el.removeEventListener('touchend', settleX)
+      el.removeEventListener('scrollend', settleX)
+      if (clampRaf) cancelAnimationFrame(clampRaf)
+    }
+  }, [isMobile, bookcaseRevealed, zoomedIn])
+
+  // Zoomed-in: center horizontal scroll on the bookcase only when entering detail view.
+  useEffect(() => {
+    if (!isMobile || !bookcaseRevealed) {
+      prevZoomedInRef.current = zoomedIn
+      return
+    }
+    const justZoomedIn = zoomedIn && !prevZoomedInRef.current
+    prevZoomedInRef.current = zoomedIn
+    if (!justZoomedIn) return
+    // Animated zooms (drag auto-zoom + magnifier button) position the scroll themselves.
+    if (scaleAnimatingRef.current || dragAutoZoomRef.current) return
+    const el = scrollRef.current
+    if (!el) return
+    requestAnimationFrame(() => {
+      const sc = scaleRef.current
+      const bookcaseCenterScreen = (BOOKCASE_LEFT + BOOKCASE_WIDTH / 2) * sc
+      const { min, max } = mobileShelfScrollBounds(el, sc)
+      const target = Math.max(min, Math.min(max, bookcaseCenterScreen - el.clientWidth / 2 - MOBILE_ZOOMED_IN_MONSTER_BIAS * sc))
+      el.scrollLeft = target
+    })
+  }, [isMobile, zoomedIn, bookcaseRevealed])
+
+  // Zoomed-out: always reset horizontal offset when leaving detail view.
+  useEffect(() => {
+    if (!isMobile || zoomedIn || scaleAnimatingRef.current) return
+    const el = scrollRef.current
+    if (el) el.scrollLeft = 0
+  }, [isMobile, zoomedIn, scale])
+
+  // Block iOS Safari's pinch / double-tap zoom — it ignores user-scalable=no in the
+  // viewport meta, so the visual size of books/decor would drift from their true size.
+  useEffect(() => {
+    const stop = e => e.preventDefault()
+    let lastTouchEnd = 0
+    const onTouchEnd = e => {
+      const now = Date.now()
+      if (now - lastTouchEnd < 300) e.preventDefault()  // double-tap zoom
+      lastTouchEnd = now
+    }
+    document.addEventListener('gesturestart', stop)     // iOS pinch
+    document.addEventListener('gesturechange', stop)
+    document.addEventListener('touchend', onTouchEnd, { passive: false })
+    return () => {
+      document.removeEventListener('gesturestart', stop)
+      document.removeEventListener('gesturechange', stop)
+      document.removeEventListener('touchend', onTouchEnd)
+    }
   }, [])
 
   // scroll-to-shelf handled directly in handleReveal (Mode 1 only)
@@ -3104,6 +4082,8 @@ export default function App() {
     }, 2000)
   }, [shelfConfigs, shelfContents, shelfName, userId, isDbLoaded, showOnboarding]) // eslint-disable-line
 
+  useEffect(() => { document.fonts.load("700 1em 'Gasoek One'") }, [])
+
   // Intro reveal sequence:
   //   0–565ms   : smoke only — arm follows cursor freely throughout
   //   565–1130ms: bookcase appears under smoke; head parked below shelf, arm tracks cursor
@@ -3123,8 +4103,10 @@ export default function App() {
       return () => { clearTimeout(tReveal); clearTimeout(tClear) }
     }
 
-    // Mode 1 (from title intro): no poof — reveal immediately, head rises from below.
-    const startBelow = bookcaseBottom + 100
+    // Mode 1 (from title intro): no poof — reveal immediately, head pops up from behind
+    // the bookshelf. It renders at z 1 (shelf rows are z 2 and opaque), so starting just
+    // below the top board keeps it hidden until it rises above the shelf.
+    const startBelow = 340
     let emergeRaf = null
 
     setBookcaseRevealed(true)
@@ -3173,12 +4155,12 @@ export default function App() {
     const scheduleHide = () => {
       clearTimeout(idleTimer)
       idleTimer = setTimeout(() => {
-        if (window.scrollY > 10) setHeaderVisible(false)
+        if ((scrollRef.current?.scrollTop ?? 0) > 10) setHeaderVisible(false)
       }, 3000)
     }
 
     const onScroll = () => {
-      const y = window.scrollY
+      const y = scrollRef.current ? scrollRef.current.scrollTop : 0
       if (y <= 10) {
         setHeaderVisible(true)
         clearTimeout(idleTimer)
@@ -3204,12 +4186,14 @@ export default function App() {
       } else {
         scheduleHide()
       }
+      setNearTop(e.clientY < 90 && Math.abs(e.clientX - window.innerWidth / 2) < 110)
     }
 
-    window.addEventListener('scroll', onScroll, { passive: true })
+    const scrollEl = scrollRef.current
+    scrollEl?.addEventListener('scroll', onScroll, { passive: true })
     window.addEventListener('mousemove', onMouseMove)
     return () => {
-      window.removeEventListener('scroll', onScroll)
+      scrollEl?.removeEventListener('scroll', onScroll)
       window.removeEventListener('mousemove', onMouseMove)
       clearTimeout(idleTimer)
     }
@@ -3224,18 +4208,17 @@ export default function App() {
       scrollRaf = requestAnimationFrame(() => {
         scrollRaf = null
         if (introBlockRef.current) return
-        const sr = stageRef.current?.getBoundingClientRect()
         const vm = viewportMouseRef.current
-        if (!sr || !vm) return
-        const sc = sr.width / 1080
-        const newPos = { x: (vm.x - sr.left) / sc, y: (vm.y - sr.top) / sc }
+        if (!vm) return
+        const newPos = clientToStageRef.current(vm.x, vm.y, isMobileRef.current)
+        if (!newPos) return
         lastMousePosRef.current = newPos
-        displayTargetRef.current = newPos
-        setDisplayTarget(newPos)
+        trackArmTargetRef.current(newPos)
       })
     }
-    window.addEventListener('scroll', onScroll, { passive: true })
-    return () => window.removeEventListener('scroll', onScroll)
+    const scrollEl = scrollRef.current
+    scrollEl?.addEventListener('scroll', onScroll, { passive: true })
+    return () => scrollEl?.removeEventListener('scroll', onScroll)
   }, [])
 
   useEffect(() => () => {
@@ -3243,6 +4226,8 @@ export default function App() {
     clearTimeout(leaveTimerRef.current)
     cancelAnimationFrame(retractRef.current)
     cancelAnimationFrame(grabRafRef.current)
+    cancelAnimationFrame(armLerpRafRef.current)
+    cancelScaleAnim()
   }, [])
 
   // Auto-clear the temporary top transition after the pop-up animation completes
@@ -3252,49 +4237,101 @@ export default function App() {
     return () => clearTimeout(t)
   }, [applyTopTransition])
 
+  // Stage-level onMouseMove — desktop only; used to clear leave timer / hover.
+  // Arm-follow tracking is done globally in the window pointermove effect below.
   const handleMove = useCallback((e) => {
     if (selected) return
     if (grabPhaseRef.current) return
     if (isEditMode) return
     clearTimeout(leaveTimerRef.current)
-    const rect = stageRef.current?.getBoundingClientRect()
-    if (!rect) return
-    setTarget({ x: (e.clientX - rect.left) / scale, y: (e.clientY - rect.top) / scale })
-  }, [selected, scale, isEditMode])
+  }, [selected, isEditMode])
 
   const handleLeave = useCallback(() => {
     if (selected) return
     if (grabPhaseRef.current) return
     if (isEditMode) return
     clearTimeout(leaveTimerRef.current)
-    setTarget(null)
     setHoveredId(null)
-  }, [selected])
+  }, [selected, isEditMode])
 
   // Track cursor globally — RAF-throttled so React re-renders at most once per frame
   useEffect(() => {
     let rafId = null
-    function onWindowMove(e) {
-      const rect = stageRef.current?.getBoundingClientRect()
-      if (!rect) return
+
+    function applyArmTarget(pos, touch) {
+      const mobileTouch = touch && isMobileRef.current
+      if (mobileTouch) {
+        // Browse + idle edit: glide on mobile. Edit-drag uses its own handler below.
+        if (!editDraggingRef.current) {
+          trackArmTargetRef.current(pos)
+        }
+      } else {
+        if (armLerpRafRef.current) { cancelAnimationFrame(armLerpRafRef.current); armLerpRafRef.current = null }
+        cancelAnimationFrame(retractRef.current)
+        displayTargetRef.current = pos
+        setDisplayTarget(pos)
+      }
+    }
+
+    function onWindowMove(e, touch = false) {
+      const pos = clientToStage(e.clientX, e.clientY, touch && isMobileRef.current)
+      if (!pos) return
       viewportMouseRef.current = { x: e.clientX, y: e.clientY }
-      const t = { x: (e.clientX - rect.left) / scale, y: (e.clientY - rect.top) / scale }
-      lastMousePosRef.current = t  // always track, even during overlay
+      lastMousePosRef.current = pos
       if (selected) return
-      if (grabPhaseRef.current) return // frozen during grab animation
-      if (introBlockRef.current) return // frozen during intro animation
-      cancelAnimationFrame(retractRef.current)
+      if (grabPhaseRef.current) return
+      if (introBlockRef.current) return
+      if (editDraggingRef.current) return
       if (rafId) return
       rafId = requestAnimationFrame(() => {
         rafId = null
-        const pos = lastMousePosRef.current
-        displayTargetRef.current = pos
-        setDisplayTarget(pos)
+        applyArmTarget(lastMousePosRef.current, touch)
       })
     }
+
+    function onWindowPointer(e) {
+      if (e.pointerType === 'touch') onWindowMove(e, true)
+    }
+
+    // Tap without much movement still needs a lerp goal on mobile
+    function onWindowPointerDown(e) {
+      if (e.pointerType !== 'touch' || !isMobileRef.current) return
+      if (selected || grabPhaseRef.current || introBlockRef.current || editDraggingRef.current) return
+      const pos = clientToStage(e.clientX, e.clientY, true)
+      if (!pos) return
+      viewportMouseRef.current = { x: e.clientX, y: e.clientY }
+      lastMousePosRef.current = pos
+      trackArmTargetRef.current(pos)
+    }
+
     window.addEventListener('mousemove', onWindowMove)
-    return () => { window.removeEventListener('mousemove', onWindowMove); if (rafId) cancelAnimationFrame(rafId) }
-  }, [selected, scale])
+    window.addEventListener('pointermove', onWindowPointer)
+    window.addEventListener('pointerdown', onWindowPointerDown)
+    return () => {
+      window.removeEventListener('mousemove', onWindowMove)
+      window.removeEventListener('pointermove', onWindowPointer)
+      window.removeEventListener('pointerdown', onWindowPointerDown)
+      if (rafId) cancelAnimationFrame(rafId)
+    }
+  }, [selected])
+
+  // Capture taps/clicks on the stage so shelf touches always reach the arm handler.
+  useEffect(() => {
+    if (!bookcaseRevealed) return
+    const el = stageRef.current
+    if (!el) return
+    function onStageDown(e) {
+      if (editDraggingRef.current || selected || grabPhaseRef.current || introBlockRef.current) return
+      const aimHand = isMobileRef.current && e.pointerType === 'touch'
+      const pos = clientToStageRef.current(e.clientX, e.clientY, aimHand)
+      if (!pos) return
+      viewportMouseRef.current = { x: e.clientX, y: e.clientY }
+      lastMousePosRef.current = pos
+      trackArmTargetRef.current(pos)
+    }
+    el.addEventListener('pointerdown', onStageDown, { passive: true })
+    return () => el.removeEventListener('pointerdown', onStageDown)
+  }, [bookcaseRevealed, selected])
 
   const handleEnter = useCallback((b) => {
     if (selected) return
@@ -3478,10 +4515,9 @@ export default function App() {
     if (!isEditMode) { setHoveredShelfIdx(null); return }
     const numShelves = shelfContents.length
     function onGlobalMove(e) {
-      const sr = stageRef.current?.getBoundingClientRect()
-      if (!sr) return
-      const sc = sr.width / 1080
-      const stageY = (e.clientY - sr.top) / sc
+      const m = stageMetrics()
+      if (!m) return
+      const stageY = (e.clientY - m.top) / m.sy - bookcaseShiftRef.current
       // Each shelf row occupies 188px starting at y=196 (top board bottom)
       const idx = Math.floor((stageY - 196) / 188)
       setHoveredShelfIdx(idx >= 0 && idx < numShelves ? idx : null)
@@ -3496,7 +4532,7 @@ export default function App() {
     function onMove(e) {
       const head = headRef.current
       if (!head) return
-      const r = head.getBoundingClientRect()
+      const r = visualRect(head)
       const scale = r.width / 226
       const cx = r.left + 112 * scale
       const cy = r.top + 61 * scale
@@ -3551,29 +4587,44 @@ export default function App() {
     dragRotatedRef.current = false; setDragRotated(false)
     dragOverDeleteRef.current = false; setDragOverDelete(false)
     deleteConfirmedRef.current = false
+    wasOverRotateRef.current = false
     if (rotateDelayTimer.current) { clearTimeout(rotateDelayTimer.current); rotateDelayTimer.current = null }
     rotateCooldownUntil.current = 0
-    setEditDragging(info)
-    if (ghostRef.current) {
-      ghostRef.current.style.left = e.clientX + 'px'
-      ghostRef.current.style.top  = e.clientY + 'px'
+    const placeArm = () => {
+      const pos = clientToStage(e.clientX, e.clientY, true)
+      if (!pos) return
+      startArmLerp(pos)
+      setEditDragStagePos(pos)
     }
+    const autoZoomed = ensureMobileDragZoom(e.clientX, e.clientY, placeArm)
+    setEditDragging(info)
+    setGhostPos(ghostRef.current, e.clientX, e.clientY)
+    if (isMobileRef.current && !autoZoomed) placeArm()
+  }
+
+  function startArmLerp(target) {
+    lerpArmTarget(target, 0.18, () => !!editDraggingRef.current)
   }
 
   // Global mousemove while edit-dragging: update ghost + compute drop target
   useEffect(() => {
     if (!editDragging) return
+    let lastPoint = null  // latest raw finger/cursor position, drives edge auto-pan
     function onMove(e) {
-      if (ghostRef.current) {
-        const sr = stageRef.current?.getBoundingClientRect()
-        const sc = sr ? sr.width / 1080 : 1
-        // Clamp ghost to arm's reachable area: right=786, top=196, bottom=bookcase floor
-        const bookcaseFloor = 196 + shelfContentsRef.current.length * 188
-        const gx = sr ? Math.min(e.clientX, sr.left + 786 * sc) : e.clientX
-        const gy = sr ? Math.max(sr.top + 196 * sc, Math.min(e.clientY, sr.top + bookcaseFloor * sc)) : e.clientY
-        ghostRef.current.style.left = gx + 'px'
-        ghostRef.current.style.top  = gy + 'px'
-      }
+      lastPoint = { x: e.clientX, y: e.clientY }
+      const onTouchLayout = isMobileRef.current
+      const m = stageMetrics()
+      // Clamp ghost to arm's reachable area: right=786 (836 on mobile — full bookcase width),
+      // top=196, bottom=bookcase floor (both in the shifted bookcase layer).
+      const shiftY = bookcaseShiftRef.current
+      const bookcaseFloor = bookcaseBottomRef.current
+      const maxGx = onTouchLayout ? 836 : 786
+      const gx = m ? Math.min(e.clientX, m.left + maxGx * m.sx) : e.clientX
+      const gy = m ? Math.max(m.top + (196 + shiftY) * m.sy, Math.min(e.clientY, m.top + (bookcaseFloor + shiftY) * m.sy)) : e.clientY
+      setGhostPos(ghostRef.current, gx, gy)
+      // Drop detection uses the raw finger — ghost clamping is visual only.
+      const dropX = e.clientX
+      const dropY = e.clientY
       const drag = editDraggingRef.current
       const sw       = drag?.slotWidth ?? 1
       const excl     = drag?.sourceItemId ?? null
@@ -3654,9 +4705,9 @@ export default function App() {
       let found = null
       shelfInnerRefs.current.forEach((el, shelfIdx) => {
         if (!el) return
-        const rect = el.getBoundingClientRect()
-        if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) return
-        found = shelfDrop(rect, shelfIdx, e.clientX)
+        const rect = visualRect(el)
+        if (dropX < rect.left || dropX > rect.right || dropY < rect.top || dropY > rect.bottom) return
+        found = shelfDrop(rect, shelfIdx, dropX)
       })
 
       // Fallback: snap to nearest shelf when cursor is over borders/boards
@@ -3664,25 +4715,47 @@ export default function App() {
         let bestIdx = -1, bestRect = null, bestDy = Infinity
         shelfInnerRefs.current.forEach((el, shelfIdx) => {
           if (!el) return
-          const rect = el.getBoundingClientRect()
-          if (e.clientX < rect.left - 20 || e.clientX > rect.right + 20) return
-          const dy = Math.max(0, rect.top - e.clientY, e.clientY - rect.bottom)
+          const rect = visualRect(el)
+          if (dropX < rect.left - 20 || dropX > rect.right + 20) return
+          const dy = Math.max(0, rect.top - dropY, dropY - rect.bottom)
           if (dy < bestDy) { bestDy = dy; bestIdx = shelfIdx; bestRect = rect }
         })
-        if (bestRect && bestDy < 50) found = shelfDrop(bestRect, bestIdx, e.clientX)
+        if (bestRect && bestDy < 50) found = shelfDrop(bestRect, bestIdx, dropX)
       }
 
       setDropTarget(found)
 
-      // Drive the real Sprout arm to the cursor for book/stack drags
-      if (dragType === 'vertical-book' || dragType === 'horizontal-stack') {
-        const sr = stageRef.current?.getBoundingClientRect()
-        if (sr) {
-          const s = sr.width / 1080
-          const pos = { x: (e.clientX - sr.left) / s, y: (e.clientY - sr.top) / s }
+      // Drive the real Sprout arm to the finger — ghost clamping is visual only.
+      const pos = clientToStage(e.clientX, e.clientY, onTouchLayout)
+      if (pos) {
+        if (onTouchLayout) {
+          startArmLerp(pos)
+        } else {
           displayTargetRef.current = pos
           setDisplayTarget(pos)
-          setEditDragStagePos(pos)
+        }
+        setEditDragStagePos(pos)
+      }
+
+      // Touch: hover never fires, so hit-test the finger against the Rotate/Delete
+      // buttons directly (mirrors the desktop onMouseEnter/onMouseLeave semantics).
+      if (window.innerWidth < 768) {
+        const inside = r => !!r && e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom
+        const rotatable = dragType === 'horizontal-stack' || dragType === 'vertical-book'
+        const overRotate = rotatable && inside(rotateBtnRef.current?.getBoundingClientRect())
+        // Toggle once on entry; the desktop 380ms hover-delay is skipped — the bar sits at
+        // the bottom and is entered deliberately, the 700ms cooldown stops repeat toggles.
+        if (overRotate && !wasOverRotateRef.current && Date.now() >= rotateCooldownUntil.current) {
+          dragRotatedRef.current = !dragRotatedRef.current
+          setDragRotated(dragRotatedRef.current)
+          setRotateAnimKey(k => k + 1)
+          rotateCooldownUntil.current = Date.now() + 700
+        }
+        wasOverRotateRef.current = overRotate
+        const overDelete = inside(deleteBtnRef.current?.getBoundingClientRect())
+        if (overDelete !== dragOverDeleteRef.current) {
+          dragOverDeleteRef.current = overDelete
+          setDragOverDelete(overDelete)
         }
       }
     }
@@ -3695,8 +4768,9 @@ export default function App() {
       }, 260)
       const drag = editDraggingRef.current
       if (!drag) return
-      // Delete: only if mouse was released directly on the delete zone button
-      if (deleteConfirmedRef.current) {
+      // Delete: mouse released on the delete button (its onMouseUp sets the ref), or on
+      // touch — where element onMouseUp never fires — finger lifted while over it
+      if (deleteConfirmedRef.current || (window.innerWidth < 768 && dragOverDeleteRef.current)) {
         deleteConfirmedRef.current = false
         dragOverDeleteRef.current = false; setDragOverDelete(false)
         setDropTarget(null)
@@ -3793,11 +4867,59 @@ export default function App() {
       setDropTarget(null)
       setEditDragging(null)
     }
-    document.addEventListener('mousemove', onMove)
-    document.addEventListener('mouseup',   onUp)
+    // Edge auto-pan (touch): holding an item near a screen edge pans the view in that
+    // direction — horizontal pans the shelf, vertical scrolls between shelves. The drop
+    // target is recomputed each pan step so the highlight tracks the moving content.
+    let panRaf = null
+    function panTick() {
+      panRaf = requestAnimationFrame(panTick)
+      if (!lastPoint || window.innerWidth >= 768) return
+      const EDGE = 64, MAX_V = 14
+      const speed = depth => Math.ceil(MAX_V * Math.min(1, depth / EDGE))
+      let panned = false
+      // Both scroll axes live on scrollRef now (containerRef is a max-content wrapper).
+      const scr = scrollRef.current
+      if (scr) {
+        if (zoomedInRef.current) {
+          const sc = scaleRef.current
+          const { min, max } = mobileShelfScrollBounds(scr, sc)
+          if (lastPoint.x < EDGE) {
+            scr.scrollLeft = Math.max(min, scr.scrollLeft - speed(EDGE - lastPoint.x))
+            panned = true
+          } else if (lastPoint.x > window.innerWidth - EDGE) {
+            scr.scrollLeft = Math.min(max, scr.scrollLeft + speed(lastPoint.x - (window.innerWidth - EDGE)))
+            panned = true
+          }
+        }
+        const topEdge = MOBILE_HEADER_PAD + EDGE
+        if (lastPoint.y < topEdge) { scr.scrollTop -= speed(topEdge - lastPoint.y); panned = true }
+        else if (lastPoint.y > window.innerHeight - EDGE) { scr.scrollTop += speed(lastPoint.y - (window.innerHeight - EDGE)); panned = true }
+      }
+      if (panned) onMove({ clientX: lastPoint.x, clientY: lastPoint.y })
+    }
+    panRaf = requestAnimationFrame(panTick)
+
+    document.addEventListener('pointermove', onMove)
+    document.addEventListener('pointerup',   onUp)
     return () => {
-      document.removeEventListener('mousemove', onMove)
-      document.removeEventListener('mouseup',   onUp)
+      document.removeEventListener('pointermove', onMove)
+      document.removeEventListener('pointerup',   onUp)
+      if (panRaf) cancelAnimationFrame(panRaf)
+    }
+  }, [editDragging])
+
+  // While an item is being dragged on touch, freeze page scrolling so the finger drives
+  // the ghost directly (otherwise a vertical drag toward another shelf is swallowed as a
+  // scroll). Scrolling between shelves is done by touching empty shelf area, not an item;
+  // near-edge auto-pan (above) covers panning mid-drag.
+  useEffect(() => {
+    if (!editDragging) return
+    const block = e => e.preventDefault()
+    window.addEventListener('touchmove', block, { passive: false })
+    document.body.style.touchAction = 'none'  // belt-and-braces vs. browser gesture takeover
+    return () => {
+      window.removeEventListener('touchmove', block)
+      document.body.style.touchAction = ''
     }
   }, [editDragging])
 
@@ -3806,6 +4928,7 @@ export default function App() {
     dragRotatedRef.current = false; setDragRotated(false)
     dragOverDeleteRef.current = false; setDragOverDelete(false)
     deleteConfirmedRef.current = false
+    wasOverRotateRef.current = false
     if (rotateDelayTimer.current) { clearTimeout(rotateDelayTimer.current); rotateDelayTimer.current = null }
     rotateCooldownUntil.current = 0
     setShelfContents(sc => {
@@ -3818,33 +4941,38 @@ export default function App() {
       ...(item.book  ? { book: item.book }   : {}),
       ...(item.books ? { books: item.books } : {}),
     }
-    setEditDragging(drag)
-    // Set arm position immediately so it appears at the cursor from frame 1.
-    const sr = stageRef.current?.getBoundingClientRect()
-    if (sr) {
-      const s = sr.width / 1080
-      const pos = { x: (e.clientX - sr.left) / s, y: (e.clientY - sr.top) / s }
-      displayTargetRef.current = pos
-      setDisplayTarget(pos)
+    const placeArm = () => {
+      const pos = clientToStage(e.clientX, e.clientY, isMobileRef.current)
+      if (!pos) return
+      if (isMobileRef.current) {
+        startArmLerp(pos)
+      } else {
+        displayTargetRef.current = pos
+        setDisplayTarget(pos)
+      }
       setEditDragStagePos(pos)
     }
-    if (ghostRef.current) {
-      ghostRef.current.style.left = e.clientX + 'px'
-      ghostRef.current.style.top  = e.clientY + 'px'
-    }
+    const autoZoomed = ensureMobileDragZoom(e.clientX, e.clientY, placeArm)
+    setEditDragging(drag)
+    setGhostPos(ghostRef.current, e.clientX, e.clientY)
+    if (!isMobileRef.current || !autoZoomed) placeArm()
   }
 
-  function handlePlacedItemMouseDown(e, shelfIdx, item) {
-    if (ghostRef.current) {
-      ghostRef.current.style.left = e.clientX + 'px'
-      ghostRef.current.style.top  = e.clientY + 'px'
-    }
+  function handlePlacedItemPointerDown(e, shelfIdx, item) {
+    // Already carrying an item (e.g. just added from the panel) — let the drag/drop for
+    // that one finish; ignore touches that land on other placed books.
+    if (editDraggingRef.current) return
+    setGhostPos(ghostRef.current, e.clientX, e.clientY)
     // For book items defer the drag so a quick release becomes a click-to-view
     if (item.type === 'vertical-book' && item.book) {
       const startX = e.clientX, startY = e.clientY
       function onPendingMove(ev) {
-        if (Math.abs(ev.clientX - startX) > 5 || Math.abs(ev.clientY - startY) > 5) {
+        const dx = ev.clientX - startX, dy = ev.clientY - startY
+        if (Math.sqrt(dx*dx + dy*dy) > 8) {
           cleanup()
+          // Any drag past threshold starts the move (item has touch-action:none, so a
+          // vertical drag toward another shelf is a real drag, not a scroll). A release
+          // without movement falls through to onPendingUp → open the book.
           _startPlacedItemDrag(ev, shelfIdx, item)
         }
       }
@@ -3852,12 +4980,15 @@ export default function App() {
         cleanup()
         handleClickRef.current(item.book)
       }
+      function onPendingCancel() { cleanup() }
       function cleanup() {
-        document.removeEventListener('mousemove', onPendingMove)
-        document.removeEventListener('mouseup', onPendingUp)
+        document.removeEventListener('pointermove', onPendingMove)
+        document.removeEventListener('pointerup', onPendingUp)
+        document.removeEventListener('pointercancel', onPendingCancel)
       }
-      document.addEventListener('mousemove', onPendingMove)
-      document.addEventListener('mouseup', onPendingUp)
+      document.addEventListener('pointermove', onPendingMove)
+      document.addEventListener('pointerup', onPendingUp)
+      document.addEventListener('pointercancel', onPendingCancel)
       return
     }
     _startPlacedItemDrag(e, shelfIdx, item)
@@ -3879,26 +5010,30 @@ export default function App() {
       }
       return updated
     })
+    const placeArm = () => {
+      const pos = clientToStage(e.clientX, e.clientY, isMobileRef.current)
+      if (!pos) return
+      if (isMobileRef.current) startArmLerp(pos)
+      else { displayTargetRef.current = pos; setDisplayTarget(pos) }
+      setEditDragStagePos(pos)
+    }
+    const autoZoomed = ensureMobileDragZoom(e.clientX, e.clientY, placeArm)
     setEditDragging({ type: 'horizontal-stack', slotWidth: stackItem.slotWidth,
       books: grabbedBooks, sourceItemId: stackItem.id,
       sourceItem: stackItem, sourceShelfIdx: shelfIdx, sourceRemainingId: remainingId })
-    if (ghostRef.current) {
-      ghostRef.current.style.left = e.clientX + 'px'
-      ghostRef.current.style.top  = e.clientY + 'px'
-    }
+    setGhostPos(ghostRef.current, e.clientX, e.clientY)
+    if (!isMobileRef.current || !autoZoomed) placeArm()
   }
 
-  // Grab N books off the top of a stack — defer until mouse moves so a quick release = click-to-view
-  function handleStackBookMouseDown(e, shelfIdx, stackItem, bookIdx) {
-    e.preventDefault()
+  // Grab N books off the top of a stack — defer until pointer moves so a quick release = click-to-view
+  function handleStackBookPointerDown(e, shelfIdx, stackItem, bookIdx) {
+    if (!isMobile) e.preventDefault()
     e.stopPropagation()
-    if (ghostRef.current) {
-      ghostRef.current.style.left = e.clientX + 'px'
-      ghostRef.current.style.top  = e.clientY + 'px'
-    }
+    setGhostPos(ghostRef.current, e.clientX, e.clientY)
     const startX = e.clientX, startY = e.clientY
     function onPendingMove(ev) {
-      if (Math.abs(ev.clientX - startX) > 5 || Math.abs(ev.clientY - startY) > 5) {
+      const dx = ev.clientX - startX, dy = ev.clientY - startY
+      if (Math.sqrt(dx*dx + dy*dy) > 8) {
         cleanup()
         _startStackDrag(ev, shelfIdx, stackItem, bookIdx)
       }
@@ -3908,12 +5043,15 @@ export default function App() {
       const book = stackItem.books[bookIdx]
       if (book) handleClickRef.current(book)
     }
+    function onPendingCancel() { cleanup() }
     function cleanup() {
-      document.removeEventListener('mousemove', onPendingMove)
-      document.removeEventListener('mouseup', onPendingUp)
+      document.removeEventListener('pointermove', onPendingMove)
+      document.removeEventListener('pointerup', onPendingUp)
+      document.removeEventListener('pointercancel', onPendingCancel)
     }
-    document.addEventListener('mousemove', onPendingMove)
-    document.addEventListener('mouseup', onPendingUp)
+    document.addEventListener('pointermove', onPendingMove)
+    document.addEventListener('pointerup', onPendingUp)
+    document.addEventListener('pointercancel', onPendingCancel)
   }
 
   // Shelf inner mousemove: re-compute drop highlight (redundant with global but keeps it snappy)
@@ -3924,7 +5062,7 @@ export default function App() {
     const excl = drag.sourceItemId ?? null
     const el   = shelfInnerRefs.current[shelfIdx]
     if (!el) return
-    const rect = el.getBoundingClientRect()
+    const rect = visualRect(el)
     const slotPx = rect.width / NUM_SLOTS
     const centre = Math.floor((e.clientX - rect.left) / slotPx)
     // Merge: book or stack dragged over a horizontal-stack with room
@@ -4011,16 +5149,20 @@ export default function App() {
   const retreating = grabPhase === 'returning' || grabPhase === 'done' || selected !== null
   // returnProgress 0→1: during returning, retractMode sweeps 1→0, so 1-retractMode gives progress
   const returnProgress = retreating ? (1 - retractMode) : 0
-  const bookcaseBottom = 196 + shelfConfigs.length * 188
-  // During retreating the arm is at z=1 (behind shelf). Tighten the clamp so the hand
-  // (elbowY + 24 + 24px stroke radius) never pokes below the bookcase floor.
-  const maxElbowY = retreating ? bookcaseBottom - 60 : bookcaseBottom - 10
+  const safeShelfH = (Number.isFinite(shelfH) && shelfH > 0) ? shelfH : SHELF_H
+  const bookcaseBottom = 196 + shelfConfigs.length * (safeShelfH + 20)
+  bookcaseBottomRef.current = bookcaseBottom
+  // During retreating the arm is at z=1 (behind shelf). Otherwise let the hand reach
+  // the bottom shelf row (elbow can sit slightly below the bookcase floor line).
+  const maxElbowY = retreating ? bookcaseBottom - 60 : bookcaseBottom + 36
   const isEditDragArm = editDragStagePos !== null
   const armTarget = displayTarget
-  const arm = computeArm(armTarget, retractMode, returnProgress, maxElbowY, isEditDragArm ? -600 : 270)
-  // Stage rect — maps in-stage coordinates to the always-fixed forearm SVG
-  const stageSR = stageRef.current?.getBoundingClientRect() ?? null
-  const stageSc = stageSR ? stageSR.width / 1080 : 1
+  const armMaxTx = isMobile ? 850 : 786
+  const arm = computeArm(armTarget, retractMode, returnProgress, maxElbowY, isEditDragArm ? -600 : 270, armMaxTx)
+  // Stage rect (visual space) — maps in-stage coordinates to position:fixed overlays
+  const stageM = stageRef.current ? stageMetrics() : null
+  const stageSR = stageM ? { left: stageM.left, top: stageM.top, width: stageM.width, height: stageM.height } : null
+  const stageSc = stageM ? stageM.sx : 1
   const armActive = armTarget !== null && (isEditDragArm || grabPhase !== 'done')
   // Type-2 drag grab: forearm extends 32px toward cursor as editGripExtend goes 0→1 (matches handShift).
   // Uses the natural retractMode=0 shoulder — no rotation, no disappear.
@@ -4033,16 +5175,22 @@ export default function App() {
   const overlayOpenTopRow = selected !== null && closingToTopRow
   const grabReturnTopRow  = selected === null && isTopRow && retreating
   // topBlend: 1 = fully top-row, 0 = fully side-row.
-  // Blends head position over a 100px zone (elbowY 340→440) instead of snapping at 390.
-  const topBlend = arm.elbowY < 340 ? 1 : arm.elbowY > 440 ? 0 : (440 - arm.elbowY) / 100
+  // Wider zone on mobile so the head doesn't snap between poses.
+  const blendLow = isMobile ? 320 : 340
+  const blendHigh = isMobile ? 460 : 440
+  const topBlend = arm.elbowY < blendLow ? 1 : arm.elbowY > blendHigh ? 0 : (blendHigh - arm.elbowY) / (blendHigh - blendLow)
   const headLeft = headIntroLeft !== null ? headIntroLeft
     : (retreating && !overlayOpenTopRow && !grabReturnTopRow) ? 250
-    : 580 * topBlend + 740 * (1 - topBlend)
+    : 580 * topBlend + (isMobile ? 710 : 740) * (1 - topBlend)
   const headTop  = headIntroTop !== null ? headIntroTop
     : overlayOpenTopRow ? 200
     : grabReturnTopRow ? 190
-    : 108 * topBlend + (arm.elbowY - 295) * (1 - topBlend)
+    : 108 * topBlend + (arm.handY - 295) * (1 - topBlend)
   const headRotate = retreating ? 0 : -5 * topBlend + 7 * (1 - topBlend)
+  headGoalRef.current = { left: headLeft, top: headTop, rotate: headRotate }
+  const renderHeadLeft = headLeft
+  const renderHeadTop = headTop
+  const renderHeadRotate = headRotate
 
   // Blend edit grip over normal grab; whichever is active drives fingers + hand shift
   const activeGrip = editGripExtend > 0.001 ? editGripExtend : fingerExtend
@@ -4056,40 +5204,119 @@ export default function App() {
 
   // Grabbed book clone — follows arm; matches actual shelf book dimensions
   const CLONE_W = Math.round(SLOT_W * 1.1)
-  const CLONE_H = grabbedBook ? Math.round(SHELF_H * (0.72 + titleT(grabbedBook.title) * 0.28) * 1.1) : SHELF_H
+  const CLONE_H = grabbedBook ? Math.round(safeShelfH * (0.72 + titleT(grabbedBook.title) * 0.28) * 1.1) : safeShelfH
   const cloneSpineFontSize = grabbedBook ? Math.max(7, Math.min(12, Math.floor((CLONE_H - 16) / ((grabbedBook.title || '').length * 0.62)))) : 12
   const showClone = grabbedBook && (grabPhase === 'grabbing' || grabPhase === 'retracting')
   const cloneLeft = arm.handTipX + 2 - CLONE_W
   const cloneTop  = arm.handY - 24 - CLONE_H / 2
 
-  const stageHeight = Math.max(960, bookcaseBottom + 140)
+  // Stage height: tall enough for the bookcase (plus its centering shift), and on mobile
+  // stretched to fill the viewport at the zoomed-out scale so the cave ceiling stays at
+  // the top of the screen and the cave floor reaches the bottom.
+  const renderBookcaseShift = isMobile ? bookcaseShiftAt(scale) : 0
+  const mobileViewportFillH = isMobile
+    ? Math.ceil((window.innerHeight - (isViewOnly ? MOBILE_HEADER_PAD : 0))
+        / Math.max(0.05, computeMobileScale(false, window.innerWidth)))
+    : 0
+  const stageHeight = Math.max(960, bookcaseBottom + renderBookcaseShift + 140, mobileViewportFillH)
+  stageHeightRef.current = stageHeight
+  const armSvgH = stageHeight
+
+  function handleSurface() {
+    setSurfacing(true)
+    setTitleFromSurface(true)
+    setShowTitle(true)
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (!scrollRef.current) return
+      const offset = Math.round(window.innerHeight * (1 + GAP_VH / 100))
+      // Set overflow directly before scrollTop so the jump is reliable before React re-renders
+      scrollRef.current.style.overflow = 'auto'
+      scrollRef.current.scrollTop = offset
+      scrollRef.current.scrollTo({ top: 0, behavior: 'smooth' })
+      setScrollUnlocked(true)
+    }))
+    setTimeout(() => {
+      setBookcaseRevealed(false)
+      setScrollUnlocked(false)
+      setSurfacing(false)
+      if (scrollRef.current) scrollRef.current.scrollTop = 0
+    }, 900)
+  }
 
   function handleReveal() {
     setScrollUnlocked(true)
-    setTimeout(() => {
-      if (scrollRef.current) {
-        const target = window.innerHeight + window.innerHeight * (GAP_VH / 100)
-        scrollRef.current.scrollTo({ top: target, behavior: 'smooth' })
-      }
-    }, 0)
+
+    // Reveal the bookcase immediately so shelf content is ready as the scroll reaches it.
+    // The intro effect will skip Mode 1 because bookcaseRevealed is already true.
+    if (isDbLoaded && !bookcaseRevealed) {
+      setBookcaseRevealed(true)
+      // Start just below the shelf's top board (head is z-behind the opaque rows) so it
+      // pops up from behind the bookshelf rather than traveling from the screen bottom
+      const startBelow = 340
+      setHeadIntroTop(startBelow)
+      setHeadIntroLeft(580)
+      // Start head emergence ~600ms in — roughly when the scroll reaches the shelf
+      setTimeout(() => {
+        const headEndTop = 108
+        const dur = 820
+        let t0 = null
+        function frameEmerge(ts) {
+          if (!t0) t0 = ts
+          const p = Math.min(1, (ts - t0) / dur)
+          const ep = 1 - Math.pow(1 - p, 3)
+          setHeadIntroTop(Math.round(startBelow + (headEndTop - startBelow) * ep))
+          if (p < 1) {
+            requestAnimationFrame(frameEmerge)
+          } else {
+            setHeadIntroTop(null)
+            setHeadIntroLeft(null)
+          }
+        }
+        requestAnimationFrame(frameEmerge)
+      }, 600)
+    }
+
+    requestAnimationFrame(() => {
+      if (!scrollRef.current) return
+      const target = Math.round(window.innerHeight * (1 + GAP_VH / 100))
+      const el = scrollRef.current
+      el.scrollTo({ top: target, behavior: 'smooth' })
+      // Dismiss only after scroll reaches the cave — removes title DOM without a jump
+      let dismissed = false
+      const go = () => { if (dismissed) return; dismissed = true; handleDismiss() }
+      el.addEventListener('scrollend', go, { once: true })
+      setTimeout(go, 1000) // fallback for Safari + slow devices
+    })
   }
 
   function handleDismiss() {
     sessionStorage.setItem('seenIntro', '1')
     setShowTitle(false)
     setScrollUnlocked(false)
-    requestAnimationFrame(() => {
-      if (scrollRef.current) scrollRef.current.scrollTop = 0
-    })
+    setTitleFromSurface(false)
   }
 
+  // Reset scroll before paint when the title DOM is removed — a rAF here paints one
+  // frame with the container collapsed (blue background flash) before the reset lands.
+  useLayoutEffect(() => {
+    if (!showTitle && scrollRef.current) scrollRef.current.scrollTop = 0
+  }, [showTitle])
+
   return (
-    <div ref={scrollRef} style={{ height: '100vh', overflow: scrollUnlocked ? 'auto' : 'hidden' }}>
+    <div ref={scrollRef} className="fill-viewport" style={{
+      overflowY: (isMobile && bookcaseRevealed && !showTitle) ? 'auto' : (scrollUnlocked ? 'auto' : 'hidden'),
+      overflowX: (isMobile && zoomedIn && !showTitle) ? 'auto' : 'hidden',
+      overscrollBehaviorX: (isMobile && zoomedIn) ? 'none' : undefined,
+      background: '#223152',
+      // Mobile one-shelf-focus: gently snap each shelf into view on vertical scroll.
+      // 'proximity' (not 'mandatory') so the head/top and add-shelf button stay reachable.
+      // Off while dragging so edge auto-pan isn't yanked back to a snap point.
+      scrollSnapType: (isMobile && !showTitle && !editDragging && !scaleTransitioning) ? 'y proximity' : undefined }}>
       {showTitle && (
         <>
-          <TitleScreen onDismiss={handleDismiss} onReveal={handleReveal} scale={scale} />
-          <div style={{
-            height: `${GAP_VH}vh`, width: '100%',
+          <TitleScreen onDismiss={handleDismiss} onReveal={handleReveal} scale={scale} fromSurface={titleFromSurface} />
+          <div className="gap-viewport" style={{
+            width: '100%',
             background: 'linear-gradient(to bottom, #223152, #19243D)',
             overflow: 'hidden',
           }} />
@@ -4098,104 +5325,84 @@ export default function App() {
       <div
         ref={containerRef}
       onContextMenu={e => e.preventDefault()}
+      className={isMobile ? undefined : 'min-fill-viewport'}
       style={{
-        width: '100%', minHeight: '100vh',
-        display: 'flex', justifyContent: 'center', alignItems: 'flex-start',
-        overflowX: 'hidden',
+        // Zoomed out: center the stage so Toma's head is visible. Zoomed in: max-content +
+        // flex-start so horizontal pan stays within the bookshelf clamp.
+        width: (isMobile && zoomedIn) ? 'max-content' : '100%',
+        minHeight: isMobile ? undefined : '100vh',
+        display: 'flex',
+        justifyContent: (isMobile && zoomedIn) ? 'flex-start' : 'center', alignItems: 'flex-start',
         background: '#223152',
+        // Mobile view-only keeps the fixed top banner — start the stage below it.
+        // Owners have the footer instead, so the stage can use the full height.
+        paddingTop: (isMobile && isViewOnly) ? MOBILE_HEADER_PAD : 0,
         fontFamily: "'Manrope', sans-serif",
       }}>
       <div
         ref={stageRef}
         onMouseMove={handleMove}
         onMouseLeave={handleLeave}
-        style={{ position: 'relative', width: 1080, height: stageHeight, zoom: scale, zIndex: retreating ? 10 : undefined }}
+        style={{ position: 'relative', width: 1080, height: stageHeight,
+          // zoom is applied imperatively via a layout effect (see scaleRef sync) so the
+          // per-frame animated value survives React re-renders without a flash.
+          zIndex: retreating ? 10 : undefined,
+          // Zoomed in: pan within the shelf. Zoomed out: vertical only. Freeze while dragging.
+          touchAction: isMobile ? (editDragging ? 'none' : (zoomedIn ? 'pan-x pan-y' : 'pan-y')) : 'pan-y',
+          // flexShrink 0: flex items default to shrink:1, which would compress the zoomed stage
+          // below 1080*scale. With shrink off, plain flex centering crops the overflow equally
+          // on both sides — engine-agnostic (margin-based centering interacts with CSS zoom
+          // differently on iOS WebKit vs Chromium).
+          flexShrink: 0 }}
       >
           {/* cave background */}
           <CaveBackground stageHeight={stageHeight} bookcaseBottom={bookcaseBottom} />
 
-          {poofActive && <PoofSmoke top={178} h={Math.max(1, shelfConfigs.length) * 188} />}
+          {/* Surface button — only on own shelf, fades in when mouse nears top */}
+          {bookcaseRevealed && !isViewOnly && (() => {
+            if (typeof document !== 'undefined' && !document.getElementById('surface-kf')) {
+              const s = document.createElement('style'); s.id = 'surface-kf'
+              s.textContent = '@keyframes surfaceBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}'
+              document.head.appendChild(s)
+            }
+            return (
+              <div
+                onClick={handleSurface}
+                style={{
+                  position: 'absolute', top: 28, left: '50%',
+                  transform: 'translateX(-50%)',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5,
+                  opacity: (isMobile || nearTop) ? 1 : 0,
+                  transition: 'opacity 0.35s ease',
+                  pointerEvents: (isMobile || nearTop) ? 'auto' : 'none',
+                  cursor: 'pointer', zIndex: 20, userSelect: 'none',
+                }}
+              >
+                <svg
+                  width="18" height="12" viewBox="0 0 18 12"
+                  style={{ animation: (!isMobile && nearTop) ? 'surfaceBob 1.8s ease-in-out infinite' : 'none' }}
+                >
+                  <path d="M9 1 L17 11 L1 11 Z" fill="rgba(253,248,239,0.65)" />
+                </svg>
+                <span style={{
+                  fontSize: 9, fontWeight: 700, letterSpacing: '0.12em',
+                  color: 'rgba(253,248,239,0.5)', fontFamily: "'Manrope', sans-serif",
+                  textTransform: 'uppercase',
+                }}>Surface</span>
+              </div>
+            )
+          })()}
 
-          {bookcaseRevealed && <div style={{ position: 'absolute', inset: 0 }}>
+          {poofActive && <PoofSmoke top={178 + renderBookcaseShift} h={Math.max(1, shelfConfigs.length) * 188} />}
+
+          {bookcaseRevealed && <div ref={bookcaseLayerRef} style={{ position: 'absolute', left: 0, right: 0, top: renderBookcaseShift, height: '100%' }}>
 
           {/* bookshelf shadow — two ellipses */}
           <div style={{ position: 'absolute', left: -300, top: bookcaseBottom - 90, width: 1680, height: 180, borderRadius: '50%', background: '#19243D', opacity: 0.4, zIndex: 0 }} />
           <div style={{ position: 'absolute', left: -100, top: bookcaseBottom - 45, width: 1280, height: 90, borderRadius: '50%', background: '#19243D', opacity: 0.6, zIndex: 0 }} />
 
-          {/* header bar — fixed, hides on scroll down, shows on scroll up */}
-          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px 10px', zIndex: 9, pointerEvents: 'none', transform: headerVisible ? 'translateY(0)' : 'translateY(-120%)', transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)' }}>
-            <div style={{ pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: 10, alignSelf: isViewOnly ? 'flex-start' : 'center' }}>
-              {isViewOnly && (
-                <span style={{ color: '#FDF8EF', opacity: 0.7, fontSize: 12, fontFamily: "'Manrope',sans-serif", whiteSpace: 'nowrap' }}>
-                  Viewing {username ? `${username}'s collection` : 'a collection'}
-                </span>
-              )}
-              {!isViewOnly && (
-                <button
-                  onClick={isEditMode ? exitEditMode : enterEditMode}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 8,
-                    padding: '6px 14px 6px 8px', cursor: 'pointer',
-                    background: 'linear-gradient(#2A2A2A, #2A2A2A) padding-box, repeating-linear-gradient(-45deg, #FFD700, #FFD700 7px, #1C1C1C 7px, #1C1C1C 14px) border-box',
-                    border: '3px solid transparent',
-                    borderRadius: 11,
-                    color: '#ffffff',
-                    fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: 13,
-                  }}
-                >
-                  {/* toggle track */}
-                  <div style={{
-                    width: 36, height: 20, borderRadius: 10, flexShrink: 0, position: 'relative',
-                    background: isEditMode ? '#FFD700' : '#1A1A1A',
-                    boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.7)',
-                    transition: 'background 0.2s',
-                  }}>
-                    {/* thumb */}
-                    <div style={{
-                      position: 'absolute', top: 3, width: 14, height: 14, borderRadius: 7,
-                      background: '#3C3C3C',
-                      left: isEditMode ? 19 : 3,
-                      boxShadow: '0 1px 3px rgba(0,0,0,0.6)',
-                      transition: 'left 0.18s cubic-bezier(.4,0,.2,1)',
-                    }}/>
-                  </div>
-                  Build mode
-                </button>
-              )}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, pointerEvents: 'auto' }}>
-              {isViewOnly && (
-                <button
-                  onClick={() => { window.location.href = window.location.origin + window.location.pathname + '?skipIntro=1' }}
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#254CA4', color: '#FDF8EF', border: 'none', borderRadius: 10, padding: '7px 14px', fontSize: 13, fontFamily: "'Manrope',sans-serif", fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
-                >
-                  {viewerHasOwnShelf ? 'My Collection' : 'Create your shelf'}
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                    <path d="M5 3L9.5 7L5 11" stroke="#FDF8EF" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </button>
-              )}
-              {!isViewOnly && (<>
-                {saveStatus !== '' && (
-                  <span style={{ fontSize: 12, color: '#FDF8EF', opacity: 0.65, fontFamily: "'Manrope',sans-serif", pointerEvents: 'none' }}>
-                    {saveStatus === 'saving' ? 'Saving…' : 'Saved'}
-                  </span>
-                )}
-                {shareId && (
-                  <button onClick={() => setShowShareModal(true)}
-                    style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#254CA4', color: '#FDF8EF', border: '3px solid transparent', borderRadius: 10, padding: '6px 14px', fontSize: 13, fontFamily: "'Manrope',sans-serif", fontWeight: 700, cursor: 'pointer' }}>
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                      <circle cx="11" cy="2.5" r="1.5" stroke="#FDF8EF" strokeWidth="1.4"/>
-                      <circle cx="11" cy="11.5" r="1.5" stroke="#FDF8EF" strokeWidth="1.4"/>
-                      <circle cx="3" cy="7" r="1.5" stroke="#FDF8EF" strokeWidth="1.4"/>
-                      <path d="M9.6 3.3L4.4 6.2M4.4 7.8l5.2 2.9" stroke="#FDF8EF" strokeWidth="1.4" strokeLinecap="round"/>
-                    </svg>
-                    Share
-                  </button>
-                )}
-              </>)}
-            </div>
-          </div>
+          {/* header bar moved outside the zoomed stage — see below after the stage div.
+              (position:fixed inside a CSS-zoomed ancestor renders inconsistently across engines) */}
 
           {/* gold nameplate — bottom-aligned with bookcase top */}
           <div style={{ position: 'absolute', left: 228, top: 178, zIndex: 9, transform: 'translateY(-100%)' }}>
@@ -4204,22 +5411,24 @@ export default function App() {
               username={username}
               showEditButton={isEditMode && !isViewOnly}
               onEdit={() => setShowPlateEdit(true)}
+              isMobile={isMobile}
             />
           </div>
 
           {/* creature head */}
           <div ref={headRef} style={{
             position: 'absolute',
-            left: headLeft, top: headTop,
+            left: renderHeadLeft, top: renderHeadTop,
             width: 226, height: 230, zIndex: 1,
-            transform: `rotate(${headRotate}deg)`,
+            transform: `rotate(${renderHeadRotate}deg)`,
             transformOrigin: '50% 90%',
             transition: (headIntroTop !== null || headIntroLeft !== null) ? 'none'
+              : isMobile ? 'transform .3s ease-out'
               : retreating
                 ? 'left .38s ease-in, top .38s ease-in, transform .3s ease-in'
                 : applyTopTransition
                   ? 'left .72s cubic-bezier(.22,.68,0,1.18), top .4s cubic-bezier(.34,1.4,.5,1), transform .3s ease-out'
-                  : 'left .72s cubic-bezier(.22,.68,0,1.18), transform .3s ease-out',
+                  : 'left .18s ease-out, transform .3s ease-out',
           }}>
             <div style={{ position: 'absolute', inset: 0, animation: headDucking ? 'headDuck 1.8s ease-in-out' : (selected ? 'none' : 'tomaBob 4.6s ease-in-out infinite') }}>
               <TomaHead
@@ -4247,52 +5456,58 @@ export default function App() {
               return shelfConfigs.map((cfg, shelfIdx) => {
                 const colors = getShelfColors(cfg.colorKey)
                 const shelf = { ...colors, label: cfg.label, items: cfg.items || [] }
-                if (isEditMode) return (
+                const row = isEditMode ? (
                   <EditableShelfRow
-                    key={cfg.id}
                     shelf={shelf}
                     shelfIdx={shelfIdx}
                     items={shelfContents[shelfIdx] || []}
                     dragging={editDragging}
                     dropTarget={dropTarget}
                     innerRef={el => { shelfInnerRefs.current[shelfIdx] = el }}
-                    onMouseMove={e => handleShelfMouseMove(e, shelfIdx)}
-                    onMouseUp={() => {}}
-                    onItemMouseDown={handlePlacedItemMouseDown}
-                    onStackBookMouseDown={handleStackBookMouseDown}
+                    onPointerMove={e => handleShelfMouseMove(e, shelfIdx)}
+                    onPointerUp={() => {}}
+                    onItemPointerDown={handlePlacedItemPointerDown}
+                    onStackBookPointerDown={handleStackBookPointerDown}
                     onEditClick={() => setEditingShelfIdx(shelfIdx)}
-                    showEditButton={!editDragging && hoveredShelfIdx === shelfIdx && !selected}
+                    showEditButton={!editDragging && (isMobile || hoveredShelfIdx === shelfIdx) && !selected}
                     grabbedBookId={grabbedBookId}
+                    shelfH={safeShelfH}
+                    isMobile={isMobile}
                   />
-                )
-                if (hasPlaced) return (
+                ) : hasPlaced ? (
                   <SavedShelfRow
-                    key={cfg.id}
                     shelf={shelf}
                     items={shelfContents[shelfIdx] || []}
                     onBookClick={handleClick}
                     grabbedBookId={grabbedBookId}
+                    shelfH={safeShelfH}
                   />
-                )
-                return (
+                ) : (
                   <ShelfRow
-                    key={cfg.id}
                     shelf={shelf}
                     hoveredId={hoveredId}
                     grabbedId={grabbedBookId}
                     onEnter={handleEnter}
                     onLeave={handleLeaveBook}
                     onClick={handleClick}
+                    shelfH={safeShelfH}
                   />
                 )
+                // On mobile each shelf row is a vertical scroll-snap target so the view
+                // settles on one shelf at a time. scrollMarginTop offsets the view-only banner.
+                return isMobile
+                  ? <div key={cfg.id} style={{ scrollSnapAlign: 'center', scrollMarginTop: isViewOnly ? MOBILE_HEADER_PAD : 0 }}>{row}</div>
+                  : <div key={cfg.id}>{row}</div>
               })
             })()}
-            {/* Add shelf button — edit mode only, fades out while dragging */}
-            {isEditMode && (
+            {/* Add shelf button — edit mode only, fades out while dragging.
+                Mobile adds shelves via the footer's "Shelves" list instead. */}
+            {isEditMode && !isMobile && (
               <div style={{ display: 'flex', justifyContent: 'center', padding: '14px 0 4px', opacity: editDragging ? 0 : 1, pointerEvents: editDragging ? 'none' : 'auto', transition: 'opacity 0.2s ease' }}>
                 <button
                   onClick={() => setShowAddShelfModal(true)}
-                  style={{ background: '#254CA4', border: 'none', borderRadius: 12, padding: '10px 28px', fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: 15, color: '#FDF8EF', cursor: 'pointer' }}
+                  // In-shelf scale on mobile, matching the edit chips
+                  style={{ background: '#254CA4', border: 'none', borderRadius: 12, padding: isMobile ? '10px 30px' : '10px 28px', fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: isMobile ? 18 : 15, color: '#FDF8EF', cursor: 'pointer' }}
                 >+ Add Shelf</button>
               </div>
             )}
@@ -4330,14 +5545,14 @@ export default function App() {
           )}
 
           {/* arm — upper arm behind shelf (z=1); forearm + hand z varies during grab */}
-          <svg width="1080" height="960" style={{ position: 'absolute', left: 0, top: 0, pointerEvents: 'none', zIndex: 1, overflow: 'visible' }}>
+          <svg width="1080" height={armSvgH} style={{ position: 'absolute', left: 0, top: 0, pointerEvents: 'none', zIndex: 1, overflow: 'visible' }}>
             <path d={arm.uaPath} fill="none" stroke="#72FF5D" strokeWidth="48" strokeLinecap="round"
               style={{ opacity: armActive ? 1 : 0, transition: 'opacity .2s ease' }} />
           </svg>
 
           {/* Forearm + hand — lives inside stageRef so it scrolls natively with the body.
               retreating = arm swept right returning behind shelf, drop z so shelf covers it */}
-          <svg width="1080" height="960" style={{ position: 'absolute', left: 0, top: 0, pointerEvents: 'none', zIndex: retreating ? 1 : 56, overflow: 'visible' }}>
+          <svg width="1080" height={armSvgH} style={{ position: 'absolute', left: 0, top: 0, pointerEvents: 'none', zIndex: retreating ? 1 : 56, overflow: 'visible' }}>
             <g style={{ opacity: armActive ? 1 : 0, transition: 'opacity .2s ease' }}>
               <path d={activeFaPath} fill="none" stroke="#72FF5D" strokeWidth="48" strokeLinecap="round" />
               <g transform={arm.handTransform}>
@@ -4358,8 +5573,133 @@ export default function App() {
           </div>}{/* end bookcaseRevealed */}
 
         </div>
+      {/* header bar — outside the zoomed stage so position:fixed renders at true viewport
+          scale on every engine. Desktop: hides on scroll down / shows on scroll up.
+          Mobile owners get the central footer instead (SidePanelButtons); the header
+          only remains on mobile for the view-only banner. */}
+      {bookcaseRevealed && (!isMobile || isViewOnly) && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px 10px', zIndex: 9, pointerEvents: 'none', background: isMobile ? '#223152' : 'transparent', transform: ((headerVisible && !surfacing) || isMobile) ? 'translateY(0)' : 'translateY(-120%)', transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)' }}>
+          <div style={{ pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: 10, alignSelf: isViewOnly ? 'flex-start' : 'center' }}>
+            {isViewOnly && (
+              <span style={{ color: '#FDF8EF', opacity: 0.7, fontSize: 12, fontFamily: "'Manrope',sans-serif", whiteSpace: 'nowrap' }}>
+                Viewing {username ? `${username}'s collection` : 'a collection'}
+              </span>
+            )}
+            {!isViewOnly && (
+              <button
+                onClick={isEditMode ? exitEditMode : enterEditMode}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: isMobile ? '10px 18px 10px 12px' : '6px 14px 6px 8px', cursor: 'pointer',
+                  background: 'linear-gradient(#2A2A2A, #2A2A2A) padding-box, repeating-linear-gradient(-45deg, #FFD700, #FFD700 7px, #1C1C1C 7px, #1C1C1C 14px) border-box',
+                  border: '3px solid transparent',
+                  borderRadius: 11,
+                  color: '#ffffff',
+                  fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: isMobile ? 15 : 13,
+                }}
+              >
+                {/* toggle track */}
+                <div style={{
+                  width: isMobile ? 44 : 36, height: isMobile ? 24 : 20, borderRadius: 12, flexShrink: 0, position: 'relative',
+                  background: isEditMode ? '#FFD700' : '#1A1A1A',
+                  boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.7)',
+                  transition: 'background 0.2s',
+                }}>
+                  {/* thumb */}
+                  <div style={{
+                    position: 'absolute', top: isMobile ? 4 : 3, width: isMobile ? 16 : 14, height: isMobile ? 16 : 14, borderRadius: 8,
+                    background: '#3C3C3C',
+                    left: isEditMode ? (isMobile ? 24 : 19) : 3,
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.6)',
+                    transition: 'left 0.18s cubic-bezier(.4,0,.2,1)',
+                  }}/>
+                </div>
+                Build mode
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, pointerEvents: 'auto' }}>
+            {isViewOnly && (
+              <button
+                onClick={() => { window.location.href = window.location.origin + window.location.pathname + '?skipIntro=1' }}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#254CA4', color: '#FDF8EF', border: 'none', borderRadius: 10, padding: '7px 14px', fontSize: 13, fontFamily: "'Manrope',sans-serif", fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
+              >
+                {viewerHasOwnShelf ? 'My Collection' : 'Create your shelf'}
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M5 3L9.5 7L5 11" stroke="#FDF8EF" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+            )}
+            {!isViewOnly && (<>
+              {saveStatus !== '' && (
+                <span style={{ fontSize: 12, color: '#FDF8EF', opacity: 0.65, fontFamily: "'Manrope',sans-serif", pointerEvents: 'none' }}>
+                  {saveStatus === 'saving' ? 'Saving…' : 'Saved'}
+                </span>
+              )}
+              {shareId && (
+                <button onClick={() => setShowShareModal(true)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#254CA4', color: '#FDF8EF', border: '3px solid transparent', borderRadius: 10, padding: isMobile ? '10px 18px' : '6px 14px', fontSize: isMobile ? 15 : 13, fontFamily: "'Manrope',sans-serif", fontWeight: 700, cursor: 'pointer' }}>
+                  <svg width={isMobile ? 17 : 14} height={isMobile ? 17 : 14} viewBox="0 0 14 14" fill="none">
+                    <circle cx="11" cy="2.5" r="1.5" stroke="#FDF8EF" strokeWidth="1.4"/>
+                    <circle cx="11" cy="11.5" r="1.5" stroke="#FDF8EF" strokeWidth="1.4"/>
+                    <circle cx="3" cy="7" r="1.5" stroke="#FDF8EF" strokeWidth="1.4"/>
+                    <path d="M9.6 3.3L4.4 6.2M4.4 7.8l5.2 2.9" stroke="#FDF8EF" strokeWidth="1.4" strokeLinecap="round"/>
+                  </svg>
+                  Share
+                </button>
+              )}
+            </>)}
+          </div>
+        </div>
+      )}
+
+      {/* Mobile zoom toggle — pinch is disabled, so one magnifier button switches between
+          the full-bookshelf view and a 3x one-shelf detail view. Hidden while dragging. */}
+      {isMobile && bookcaseRevealed && !selected && !editDragging && (
+        <button
+          onClick={toggleMobileZoom}
+          style={{
+            position: 'fixed', left: 12, top: 12, zIndex: 40,
+            width: 44, height: 44, borderRadius: 12, border: 'none',
+            background: 'rgba(37,76,164,0.92)', color: '#FDF8EF',
+            cursor: 'pointer', boxShadow: '0 2px 10px rgba(0,0,0,0.35)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+            <circle cx="9.5" cy="9.5" r="6.5" stroke="#FDF8EF" strokeWidth="2.2" />
+            <path d="M14.5 14.5L20 20" stroke="#FDF8EF" strokeWidth="2.2" strokeLinecap="round" />
+            {/* plus to zoom in, minus to zoom back out */}
+            <path d="M6.5 9.5H12.5" stroke="#FDF8EF" strokeWidth="2" strokeLinecap="round" />
+            {!zoomedIn && <path d="M9.5 6.5V12.5" stroke="#FDF8EF" strokeWidth="2" strokeLinecap="round" />}
+          </svg>
+        </button>
+      )}
+
+      {/* Share — mobile only, top-right, same 44x44 style as the zoom toggle */}
+      {isMobile && bookcaseRevealed && !isViewOnly && !selected && !editDragging && shareId && (
+        <button
+          onClick={() => setShowShareModal(true)}
+          aria-label="Share collection"
+          style={{
+            position: 'fixed', right: 12, top: 12, zIndex: 40,
+            width: 44, height: 44, borderRadius: 12, border: 'none',
+            background: 'rgba(37,76,164,0.92)', color: '#FDF8EF',
+            cursor: 'pointer', boxShadow: '0 2px 10px rgba(0,0,0,0.35)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <svg width="20" height="20" viewBox="0 0 14 14" fill="none">
+            <circle cx="11" cy="2.5" r="1.5" stroke="#FDF8EF" strokeWidth="1.4"/>
+            <circle cx="11" cy="11.5" r="1.5" stroke="#FDF8EF" strokeWidth="1.4"/>
+            <circle cx="3" cy="7" r="1.5" stroke="#FDF8EF" strokeWidth="1.4"/>
+            <path d="M9.6 3.3L4.4 6.2M4.4 7.8l5.2 2.9" stroke="#FDF8EF" strokeWidth="1.4" strokeLinecap="round"/>
+          </svg>
+        </button>
+      )}
+
       {/* Overlay lives outside the scale transform so position:fixed hits the true viewport */}
-      <Overlay selected={selected} openPhase={openPhase} onClose={handleClose} shelfConfigs={shelfConfigs} descCache={descCacheRef} userId={userId} reviewsRef={reviewsRef} isViewOnly={isViewOnly} ownerName={username} viewerUserId={viewerUserId} />
+      <Overlay selected={selected} openPhase={openPhase} onClose={handleClose} shelfConfigs={shelfConfigs} descCache={descCacheRef} userId={userId} reviewsRef={reviewsRef} isViewOnly={isViewOnly} ownerName={username} viewerUserId={viewerUserId} isMobile={isMobile} />
 
       {editingShelfIdx !== null && (
         <ShelfEditModal
@@ -4385,7 +5725,7 @@ export default function App() {
       {showShareModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(25,36,61,0.6)', zIndex: 9000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           onMouseDown={e => { if (e.target === e.currentTarget) { setShowShareModal(false); setLinkCopied(false) } }}>
-          <div style={{ background: '#FDF8EF', borderRadius: 20, padding: '28px 32px 24px', width: 340, boxShadow: '0 16px 48px rgba(0,0,0,0.3)', fontFamily: "'Manrope',sans-serif" }}
+          <div style={{ background: '#FDF8EF', borderRadius: 20, padding: '28px 32px 24px', width: 'min(340px, 92vw)', boxShadow: '0 16px 48px rgba(0,0,0,0.3)', fontFamily: "'Manrope',sans-serif" }}
             onMouseDown={e => e.stopPropagation()}>
             <div style={{ fontSize: 22, fontWeight: 700, color: '#1C1C2E', marginBottom: 6 }}>Share your shelf</div>
             <div style={{ fontSize: 14, color: '#666680', marginBottom: 20 }}>Anyone with this link can view your shelf.</div>
@@ -4428,7 +5768,7 @@ export default function App() {
       {/* Edit mode UI — also outside scale so position:fixed hits the true viewport */}
       {isEditMode && (
         <>
-          <DragGhost dragging={editDragging} ghostRef={ghostRef} dragRotated={dragRotated} stageSc={stageSc} />
+          <DragGhost dragging={editDragging} ghostRef={ghostRef} dragRotated={dragRotated} stageSc={stageSc} shelfH={safeShelfH} isMobile={isMobile} />
 
           {/* Action zones — fades in/out left of bookshelf while dragging a book or stack, below ghost/arm */}
           {stageSR && (() => {
@@ -4448,12 +5788,18 @@ export default function App() {
               transition: 'box-shadow .15s',
             })
             return (
-              <div style={{ position: 'fixed', top: 0, bottom: 0, left: 0,
-                width: Math.max(80, stageSR.left), display: 'flex', flexDirection: 'column',
-                alignItems: 'flex-start', justifyContent: 'center', gap: 24, paddingLeft: 24,
-                zIndex: 45, pointerEvents: 'none',
-                opacity: (visible || deleteVisible) ? 1 : 0, transition: 'opacity 0.2s ease' }}>
-                <div style={btnStyle(dragRotated, false)}
+              <div style={isMobile
+                ? { position: 'fixed', left: 0, right: 0, bottom: 0,
+                    display: 'flex', flexDirection: 'row', justifyContent: 'center', gap: 20,
+                    padding: '12px 16px calc(12px + env(safe-area-inset-bottom))',
+                    zIndex: 45, pointerEvents: 'none',
+                    opacity: (visible || deleteVisible) ? 1 : 0, transition: 'opacity 0.2s ease' }
+                : { position: 'fixed', top: 0, bottom: 0, left: 0,
+                    width: Math.max(80, stageSR.left), display: 'flex', flexDirection: 'column',
+                    alignItems: 'flex-start', justifyContent: 'center', gap: 24, paddingLeft: 24,
+                    zIndex: 45, pointerEvents: 'none',
+                    opacity: (visible || deleteVisible) ? 1 : 0, transition: 'opacity 0.2s ease' }}>
+                <div ref={rotateBtnRef} style={{ ...btnStyle(dragRotated, false), visibility: (isMobile && !visible) ? 'hidden' : 'visible' }}
                   onMouseEnter={visible ? () => {
                     if (Date.now() < rotateCooldownUntil.current || rotateDelayTimer.current) return
                     rotateDelayTimer.current = setTimeout(() => {
@@ -4481,8 +5827,9 @@ export default function App() {
             )
           })()}
 
-          {/* Donate bin + second arm — one animated group; arm slides in behind bin */}
-          {stageSR && !!editDragging && deleteBtnRect && (() => {
+          {/* Donate bin + second arm — one animated group; arm slides in behind bin.
+              Desktop only: it anchors to the left-column panel layout. */}
+          {!isMobile && stageSR && !!editDragging && deleteBtnRect && (() => {
             const panelWidth = Math.max(80, stageSR.left)
             const BIN_W = 120
             const binLeft = Math.max(8, (panelWidth - BIN_W) / 2)
@@ -4498,8 +5845,9 @@ export default function App() {
                   width: BIN_W,
                   transform: dragOverDelete
                     ? `translateX(${binLeft}px)`
-                    : belowShelf ? `translateX(-${BIN_W + 8}px)` : 'translateX(30vw)',
-                  transition: 'transform 0.65s cubic-bezier(.34,1.4,.5,1)',
+                    : `translateX(-${BIN_W + 8}px)`,
+                  opacity: dragOverDelete ? 1 : 0,
+                  transition: 'transform 0.65s cubic-bezier(.34,1.4,.5,1), opacity 0.4s ease',
                   position: 'relative', overflow: 'visible',
                 }}>
                 <svg width={BIN_W} viewBox="0 0 316 346" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ position: 'relative', zIndex: 1 }}>
@@ -4520,24 +5868,46 @@ export default function App() {
             onToggleBook={handleToggleBookInPanel}
             onConfirm={handleBookPanelConfirm}
             onClose={() => setShowBookPanel(false)}
+            isMobile={isMobile}
           />
           <DecorAddPanel
             isOpen={showDecorPanel}
             onSelect={handleDecorSelect}
             onClose={() => setShowDecorPanel(false)}
+            isMobile={isMobile}
           />
+          {showShelfList && (
+            <ShelfListModal
+              shelfConfigs={shelfConfigs}
+              getColors={getShelfColors}
+              shelfName={shelfName}
+              username={username}
+              onEditPlate={() => { setShowShelfList(false); setShowPlateEdit(true) }}
+              onEditShelf={idx => { setShowShelfList(false); setEditingShelfIdx(idx) }}
+              onDeleteShelf={idx => deleteShelf(idx)}
+              onAddShelf={() => { setShowShelfList(false); setShowAddShelfModal(true) }}
+              onReorder={reorderShelf}
+              onClose={() => setShowShelfList(false)}
+            />
+          )}
         </>
       )}
 
-      {/* SidePanelButtons — always mounted so it can animate in/out */}
-      {bookcaseRevealed && !isViewOnly && (
+      {/* SidePanelButtons — always mounted so it can animate in/out.
+          Hidden while the title screen is up (mobile footer would float over it). */}
+      {bookcaseRevealed && !isViewOnly && !showTitle && !surfacing && (
         <SidePanelButtons
-          isEditMode={isEditMode}
+          isEditMode={isEditMode && !surfacing}
           editDragging={editDragging}
+          isMobile={isMobile}
           inventory={inventory}
           flashInventory={flashInventory}
+          onToggleEdit={isEditMode ? exitEditMode : enterEditMode}
+          onShare={() => setShowShareModal(true)}
+          showShare={!!shareId}
           onBook={() => { setShowBookPanel(true); setShowDecorPanel(false); setStackBooks([]) }}
           onDecor={() => { setShowDecorPanel(true); setShowBookPanel(false) }}
+          onShelves={() => { setShowShelfList(true); setShowBookPanel(false); setShowDecorPanel(false) }}
           onInventoryItemPlace={item => {
             if (item.type === 'book') {
               startEditDrag({ clientX: window.innerWidth / 2, clientY: window.innerHeight / 2 },
