@@ -14,6 +14,12 @@ function PlacedVerticalBook({ book, w, h, active, grabbed, onEnter, onLeave, onC
       onMouseEnter={() => { if (book?.thumbnail) { const img = new Image(); img.src = book.thumbnail }; onEnter?.() }}
       onMouseLeave={onLeave}
       onClick={onClick}
+      title={book?.title}
+      // Keyboard access for clickable books (browse view): Tab to focus, Enter/Space to open
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      aria-label={onClick ? `Open ${book?.title}` : undefined}
+      onKeyDown={onClick ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } } : undefined}
       style={{ width: w, height: h, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', cursor: onClick ? 'pointer' : 'default' }}
     >
       <div style={{
@@ -51,6 +57,11 @@ function PlacedHorizontalStack({ books, w, onBookClick, onBookMouseDown, editMod
             onMouseLeave={() => setHoveredIdx(null)}
             onPointerDown={onBookMouseDown ? e => { e.stopPropagation(); onBookMouseDown(i, e) } : undefined}
             onClick={onBookClick ? e => { e.stopPropagation(); onBookClick(b) } : undefined}
+            title={b.title}
+            role={onBookClick ? 'button' : undefined}
+            tabIndex={onBookClick ? 0 : undefined}
+            aria-label={onBookClick ? `Open ${b.title}` : undefined}
+            onKeyDown={onBookClick ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onBookClick(b) } } : undefined}
             style={{
               width: slabW, height: slabH, background: b.spine, borderRadius: 2, flexShrink: 0,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -94,8 +105,22 @@ function EditableShelfRow({ shelf, shelfIdx, items, dragging, dropTarget, innerR
             cursor: dragging ? 'grabbing' : 'default',
           }}
         >
-          {/* Slot-grid overlay */}
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', pointerEvents: 'none' }}>
+          {/* Empty-shelf hint — invites the first drop, hides while dragging (grid takes over) */}
+          {items.length === 0 && (
+            <div style={{
+              position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              pointerEvents: 'none', opacity: dragging ? 0 : 1, transition: 'opacity .15s ease',
+            }}>
+              <span style={{
+                fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: 13,
+                letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(60,25,5,0.35)',
+                border: '2px dashed rgba(60,25,5,0.22)', borderRadius: 10, padding: '8px 18px',
+              }}>Drag books & decor here</span>
+            </div>
+          )}
+
+          {/* Slot-grid overlay — only meaningful mid-drag, so keep it invisible otherwise */}
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', pointerEvents: 'none', opacity: dragging ? 1 : 0, transition: 'opacity .15s ease' }}>
             {Array.from({ length: NUM_SLOTS }, (_, i) => {
               const dt = dropTarget
               let highlighted = false
@@ -134,6 +159,11 @@ function EditableShelfRow({ shelf, shelfIdx, items, dragging, dropTarget, innerR
                 position: 'absolute', left: it.startSlot * SLOT_W, bottom: 0,
                 width: it.slotWidth * SLOT_W, height: '100%',
                 cursor: 'grab', zIndex: hoveredItemId === it.id ? 5 : 2,
+                // Books/stacks have their own hover lift; give decor the same affordance
+                // so every grabbable item visibly responds to the mouse.
+                transform: (hoveredItemId === it.id && it.type !== 'vertical-book' && it.type !== 'horizontal-stack')
+                  ? 'translateY(-6px)' : 'none',
+                transition: 'transform .22s cubic-bezier(.34,1.56,.64,1)',
                 // 'none' so a touch-drag on the item (in any direction, incl. vertically to
                 // another shelf) is captured as a drag, not swallowed by page scrolling.
                 touchAction: 'none',
@@ -309,20 +339,24 @@ function DragGhost({ dragging, ghostRef, dragRotated, stageSc = 1, shelfH = SHEL
 // ─── EditButton — shared left-column edit button with opacity fade ───────────
 
 function EditButton({ onClick, visible, onMouseDown }) {
+  const [hovered, setHovered] = useState(false)
   return (
     <button
       onClick={onClick}
       onMouseDown={onMouseDown}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
-        position: 'absolute', right: 'calc(100% + 32px)', top: '50%', transform: 'translateY(-50%)',
+        position: 'absolute', right: 'calc(100% + 32px)', top: '50%',
+        transform: hovered ? 'translateY(-50%) scale(1.08)' : 'translateY(-50%)',
         padding: '8px 12px', borderRadius: 12, fontSize: 14,
-        zIndex: 25, background: '#254CA4', border: 'none',
+        zIndex: 25, background: hovered ? '#2E5AC0' : '#254CA4', border: 'none',
         fontFamily: "'Manrope',sans-serif",
         fontWeight: 700, color: '#FDF8EF',
         cursor: 'pointer', whiteSpace: 'nowrap',
         opacity: visible ? 1 : 0,
         pointerEvents: visible ? 'auto' : 'none',
-        transition: 'opacity 0.2s ease',
+        transition: 'opacity 0.2s ease, transform 0.15s cubic-bezier(.34,1.56,.64,1), background 0.15s ease',
         display: 'flex', alignItems: 'center', gap: 4,
       }}
     >
