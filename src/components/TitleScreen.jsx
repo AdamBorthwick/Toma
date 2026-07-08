@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { MonsterHatGraphic, TOMA_FACE_VIEWBOX } from './scene.jsx'
 
 // ─── TitleScreen ──────────────────────────────────────────────────────────────
 
@@ -29,7 +30,7 @@ function StalactitePreview({ scale, viewOffset = 0, clipH = 320 }) {
   )
 }
 
-function TitleScreen({ onDismiss, onReveal, scale, fromSurface = false }) {
+function TitleScreen({ onDismiss, onReveal, scale, fromSurface = false, bodyColor = '#72FF5D', accentColor = '#3BD424', hat = 'none', hatColorKey = 'red' }) {
   const faceRef = useRef(null)
   const [irisOff, setIrisOff] = useState({ x: 0, y: 0 })
   const [exitPhase, setExitPhase] = useState(null) // null | 'duck' | 'reveal'
@@ -126,7 +127,7 @@ function TitleScreen({ onDismiss, onReveal, scale, fromSurface = false }) {
       <div style={outerStyle(1)}>
         <div style={breathStyle}>
           <svg width="100%" viewBox="0 0 325 331" fill="none">
-            <path d={BODY} fill="#72FF5D" />
+            <path d={BODY} fill={bodyColor} />
           </svg>
         </div>
       </div>
@@ -186,9 +187,9 @@ function TitleScreen({ onDismiss, onReveal, scale, fromSurface = false }) {
       {/* z:3 — face / eyes (in front of title text), breathes in sync */}
       <div ref={faceRef} style={outerStyle(3)}>
         <div style={breathStyle}>
-          <svg width="100%" viewBox="0 0 325 331" fill="none">
+          <svg width="100%" viewBox={TOMA_FACE_VIEWBOX} fill="none" style={{ overflow: 'visible' }}>
             <rect x="158.348" y="116.244" width="5.49186" height="9.15309" fill="#FDF8EF" />
-            <line x1="166.586" y1="129.974" x2="155.602" y2="129.974" stroke="#3BD424" strokeWidth="9.15309" />
+            <line x1="166.586" y1="129.974" x2="155.602" y2="129.974" stroke={accentColor} strokeWidth="9.15309" />
             <path d={EYE} fill="#FDF8EF" />
             <mask id="ts-eye-l" style={{ maskType: 'alpha' }} maskUnits="userSpaceOnUse" x="63" y="70" width="63" height="31">
               <path d={EYE} fill="white" />
@@ -203,9 +204,10 @@ function TitleScreen({ onDismiss, onReveal, scale, fromSurface = false }) {
             <g mask="url(#ts-eye-r)">
               <circle cx={230.039 + ox} cy={85.3432 + oy} r="17" fill="#1C1C2E" />
             </g>
-            <rect x="133.881" y="99.7687" width="54.0033" height="25.6287" rx="12.8143" fill="#3BD424" />
-            <line x1="161.433" y1="123.285" x2="140.381" y2="142.507" stroke="#3BD424" strokeWidth="9.15309" />
-            <line y1="-4.57655" x2="28.5072" y2="-4.57655" transform="matrix(0.738486 0.674269 0.674269 -0.738486 163.84 119.906)" stroke="#3BD424" strokeWidth="9.15309" />
+            <rect x="133.881" y="99.7687" width="54.0033" height="25.6287" rx="12.8143" fill={accentColor} />
+            <line x1="161.433" y1="123.285" x2="140.381" y2="142.507" stroke={accentColor} strokeWidth="9.15309" />
+            <line y1="-4.57655" x2="28.5072" y2="-4.57655" transform="matrix(0.738486 0.674269 0.674269 -0.738486 163.84 119.906)" stroke={accentColor} strokeWidth="9.15309" />
+            <MonsterHatGraphic hat={hat} hatColorKey={hatColorKey} />
           </svg>
         </div>
       </div>

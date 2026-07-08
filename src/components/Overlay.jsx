@@ -3,7 +3,7 @@ import { saveReview, deleteReview, addInventoryBook } from '../db.js'
 import { getShelfColors, findShelf } from '../data/shelves.jsx'
 import { IconPencil, IconClose, IconStar } from './icons.jsx'
 
-function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId, reviewsRef, isViewOnly, ownerName, viewerUserId, isMobile = false }) {
+function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId, reviewsRef, isViewOnly, ownerName, viewerUserId, isMobile = false, monsterBodyColor = '#72FF5D' }) {
   // step 0 = below screen  |  step 1 = portrait risen  |  step 2 = spread open
   const [step, setStep] = useState(0)
   const [bookOpen, setBookOpen] = useState(false)
@@ -246,8 +246,28 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
           <div style={{ display: 'flex', gap: 8 }}>
             {isInteractive
               ? <>
-                  <button onClick={() => { if (userId) { saveReview(userId, selected.id, draftText, draftRating, selected); if (reviewsRef) reviewsRef.current.set(selected.id, { text: draftText, rating: draftRating }) } setReviewText(draftText); setReviewRating(draftRating); setReviewMode('view') }} style={{ flex: 1, fontFamily: "'Manrope', sans-serif", fontSize: 13, fontWeight: 600, color: '#FDF8EF', background: '#254CA4', border: 'none', borderRadius: 8, padding: '9px 0', cursor: 'pointer' }}>Save</button>
-                  <button onClick={() => { if (userId) { deleteReview(userId, selected.id); if (reviewsRef) reviewsRef.current.delete(selected.id) } setReviewText(''); setReviewRating(0); setDraftText(''); setDraftRating(0); setReviewMode('view') }} style={{ flex: 1, fontFamily: "'Manrope', sans-serif", fontSize: 13, fontWeight: 600, color: '#606078', background: 'transparent', border: '1.5px solid #C4C4D4', borderRadius: 8, padding: '8px 0', cursor: 'pointer' }}>Delete</button>
+                  <button onClick={async () => {
+                    if (!userId) return
+                    try {
+                      await saveReview(userId, selected.id, draftText, draftRating, selected)
+                      if (reviewsRef) reviewsRef.current.set(selected.id, { text: draftText, rating: draftRating })
+                      setReviewText(draftText)
+                      setReviewRating(draftRating)
+                      setReviewMode('view')
+                    } catch { /* keep edit mode open on failure */ }
+                  }} style={{ flex: 1, fontFamily: "'Manrope', sans-serif", fontSize: 13, fontWeight: 600, color: '#FDF8EF', background: '#254CA4', border: 'none', borderRadius: 8, padding: '9px 0', cursor: 'pointer' }}>Save</button>
+                  <button onClick={async () => {
+                    if (!userId) return
+                    try {
+                      await deleteReview(userId, selected.id)
+                      if (reviewsRef) reviewsRef.current.delete(selected.id)
+                      setReviewText('')
+                      setReviewRating(0)
+                      setDraftText('')
+                      setDraftRating(0)
+                      setReviewMode('view')
+                    } catch { /* keep edit mode open on failure */ }
+                  }} style={{ flex: 1, fontFamily: "'Manrope', sans-serif", fontSize: 13, fontWeight: 600, color: '#606078', background: 'transparent', border: '1.5px solid #C4C4D4', borderRadius: 8, padding: '8px 0', cursor: 'pointer' }}>Delete</button>
                 </>
               : <>
                   <div style={{ flex: 1, fontFamily: "'Manrope', sans-serif", fontSize: 13, fontWeight: 600, color: '#FDF8EF', background: '#254CA4', borderRadius: 8, padding: '9px 0', textAlign: 'center' }}>Save</div>
@@ -312,8 +332,10 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
                     onClick={async e => {
                       e.stopPropagation()
                       if (!viewerUserId || !selected) return
-                      await addInventoryBook(viewerUserId, selected)
-                      window.location.href = window.location.origin + window.location.pathname + '?skipIntro=1&edit=1'
+                      try {
+                        await addInventoryBook(viewerUserId, selected)
+                        window.location.href = window.location.origin + window.location.pathname + '?skipIntro=1&edit=1'
+                      } catch { /* stay on page if save fails */ }
                     }}
                     style={{
                       alignSelf: 'flex-start', background: '#254CA4', color: '#FDF8EF',
@@ -371,8 +393,10 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
                     onClick={async e => {
                       e.stopPropagation()
                       if (!viewerUserId || !selected) return
-                      await addInventoryBook(viewerUserId, selected)
-                      window.location.href = window.location.origin + window.location.pathname + '?skipIntro=1&edit=1'
+                      try {
+                        await addInventoryBook(viewerUserId, selected)
+                        window.location.href = window.location.origin + window.location.pathname + '?skipIntro=1&edit=1'
+                      } catch { /* stay on page if save fails */ }
                     }}
                     onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.04)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(37,76,164,0.45)' }}
                     onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = '' }}
@@ -453,7 +477,7 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
                below the book following the arm direction. */}
           <div style={{
             position: 'absolute', left: 0, top: BH,
-            width: 50, height: 310, background: '#72FF5D', borderRadius: 25,
+            width: 50, height: 310, background: monsterBodyColor, borderRadius: 25,
             transformOrigin: 'top center',
             transform: bookOpen ? 'rotate(-2deg)' : 'rotate(-3deg)',
             transition: 'transform .62s cubic-bezier(.34,1.2,.5,1)',
@@ -461,7 +485,7 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
           }} />
           <div style={{
             position: 'absolute', right: 0, top: BH,
-            width: 50, height: 310, background: '#72FF5D', borderRadius: 25,
+            width: 50, height: 310, background: monsterBodyColor, borderRadius: 25,
             transformOrigin: 'top center',
             transform: bookOpen ? 'rotate(2deg)' : 'rotate(3deg)',
             transition: 'transform .62s cubic-bezier(.34,1.2,.5,1)',
@@ -495,17 +519,17 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
             transition: 'transform .62s cubic-bezier(.34,1.2,.5,1)',
           }}>
             {/* palm — r=25 matches arm width flush; increase r to bulge past arm edges */}
-            <circle cx="0" cy="0" r="36" fill="#72FF5D" />
+            <circle cx="0" cy="0" r="36" fill={monsterBodyColor} />
             {/* thumb — curves outward-left; start point then two bezier controls then end */}
-            <path d="M -20 20 C -45 5, -42 -15, -52 -40" stroke="#72FF5D" strokeWidth="18" strokeLinecap="round" fill="none" />
+            <path d="M -20 20 C -45 5, -42 -15, -52 -40" stroke={monsterBodyColor} strokeWidth="18" strokeLinecap="round" fill="none" />
             {/* pinky  (outermost left, shortest) */}
-            <line x1="24" y1="10"  x2="34" y2="-62"  stroke="#72FF5D" strokeWidth="18" strokeLinecap="round" />
+            <line x1="24" y1="10"  x2="34" y2="-62"  stroke={monsterBodyColor} strokeWidth="18" strokeLinecap="round" />
             {/* ring */}
-            <line x1="0"  y1="30"  x2="-12" y2="-74"  stroke="#72FF5D" strokeWidth="18" strokeLinecap="round" />
+            <line x1="0"  y1="30"  x2="-12" y2="-74"  stroke={monsterBodyColor} strokeWidth="18" strokeLinecap="round" />
             {/* middle (longest) */}
-            <line x1="8"   y1="40"  x2="12"  y2="-80"  stroke="#72FF5D" strokeWidth="18" strokeLinecap="round" />
+            <line x1="8"   y1="40"  x2="12"  y2="-80"  stroke={monsterBodyColor} strokeWidth="18" strokeLinecap="round" />
             {/* index (innermost right) */}
-            <line x1="-12"  y1="24"  x2="-34"  y2="-62"  stroke="#72FF5D" strokeWidth="18" strokeLinecap="round" />
+            <line x1="-12"  y1="24"  x2="-34"  y2="-62"  stroke={monsterBodyColor} strokeWidth="18" strokeLinecap="round" />
           </svg>
 
           {/* ── Right hand — mirror of left (x signs flipped) ── */}
@@ -517,17 +541,17 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
             transition: 'transform .62s cubic-bezier(.34,1.2,.5,1)',
           }}>
             {/* palm */}
-            <circle cx="0" cy="0" r="36" fill="#72FF5D" />
+            <circle cx="0" cy="0" r="36" fill={monsterBodyColor} />
             {/* thumb — curves outward-right */}
-            <path d="M 20 20 C 45 5, 42 -15, 52 -40" stroke="#72FF5D" strokeWidth="18" strokeLinecap="round" fill="none" />
+            <path d="M 20 20 C 45 5, 42 -15, 52 -40" stroke={monsterBodyColor} strokeWidth="18" strokeLinecap="round" fill="none" />
             {/* pinky  (outermost right, shortest) */}
-            <line x1="-24" y1="10"  x2="-34" y2="-62"  stroke="#72FF5D" strokeWidth="18" strokeLinecap="round" />
+            <line x1="-24" y1="10"  x2="-34" y2="-62"  stroke={monsterBodyColor} strokeWidth="18" strokeLinecap="round" />
             {/* ring */}
-            <line x1="0"   y1="30"  x2="12"  y2="-74"  stroke="#72FF5D" strokeWidth="18" strokeLinecap="round" />
+            <line x1="0"   y1="30"  x2="12"  y2="-74"  stroke={monsterBodyColor} strokeWidth="18" strokeLinecap="round" />
             {/* middle (longest) */}
-            <line x1="-8"  y1="40"  x2="-12" y2="-80"  stroke="#72FF5D" strokeWidth="18" strokeLinecap="round" />
+            <line x1="-8"  y1="40"  x2="-12" y2="-80"  stroke={monsterBodyColor} strokeWidth="18" strokeLinecap="round" />
             {/* index (innermost left) */}
-            <line x1="12"  y1="24"  x2="34"  y2="-62"  stroke="#72FF5D" strokeWidth="18" strokeLinecap="round" />
+            <line x1="12"  y1="24"  x2="34"  y2="-62"  stroke={monsterBodyColor} strokeWidth="18" strokeLinecap="round" />
           </svg>
 
           {/* Left click zone — previous page (bottom strip only, clears content area). Desktop only —

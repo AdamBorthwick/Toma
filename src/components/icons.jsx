@@ -79,6 +79,14 @@ function IconLeaf({ size = 28, color = 'currentColor' }) {
     </svg>
   )
 }
+function IconPerson({ size = 28, color = 'currentColor' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 28 28" fill="none">
+      <circle cx="14" cy="9" r="5" fill={color} />
+      <path d="M5 25 C5 19.5 9 16 14 16 C19 16 23 19.5 23 25" fill={color} />
+    </svg>
+  )
+}
 
 
-export { IconBooks, IconOpenBook, IconTrash, IconPencil, IconClose, IconCheck, IconRotate, IconStar, IconLeaf }
+export { IconBooks, IconOpenBook, IconTrash, IconPencil, IconClose, IconCheck, IconRotate, IconStar, IconLeaf, IconPerson }

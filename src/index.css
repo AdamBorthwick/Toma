@@ -1,5 +1,5 @@
 *, *::before, *::after { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; }
+html, body { margin: 0; padding: 0; overflow-x: hidden; }
 
 /* disable text selection and context menu across the whole app */
 * { user-select: none; -webkit-user-select: none; }
@@ -25,6 +25,16 @@ input:-webkit-autofill:focus { -webkit-box-shadow: 0 0 0 30px white inset !impor
 @keyframes blinkLid {
   0%, 90%, 100% { transform: scaleY(0); }
   94%, 96% { transform: scaleY(1); }
+}
+.toma-eye-lid {
+  transform-box: fill-box;
+  transform-origin: center top;
+}
+.toma-eye-lid--blink {
+  animation: blinkLid 5s 0.2s infinite;
+}
+.toma-eye-lid--squint {
+  animation: eyeSquint 1.8s ease-in-out;
 }
 @keyframes steamRise {
   0% { transform: translateY(0) scale(0.7); opacity: 0; }
@@ -54,6 +64,14 @@ input:-webkit-autofill:focus { -webkit-box-shadow: 0 0 0 30px white inset !impor
 @keyframes spinOnce {
   from { transform: rotate(0deg); }
   to   { transform: rotate(360deg); }
+}
+@keyframes trashHover {
+  0%, 100% { transform: rotate(-8deg) scale(1.06); }
+  50%      { transform: rotate(8deg)  scale(1.06); }
+}
+@keyframes rotateHover {
+  0%, 100% { transform: rotate(-22deg) scale(1.06); }
+  50%      { transform: rotate(22deg)  scale(1.06); }
 }
 @keyframes splashRipple {
   0%    { transform: scale(0);   opacity: 0; }
@@ -194,6 +212,73 @@ input:-webkit-autofill:focus { -webkit-box-shadow: 0 0 0 30px white inset !impor
 @keyframes tomaBreath {
   0%, 100% { transform: scaleX(1)    scaleY(1)    translateY(0); }
   50%       { transform: scaleX(1.03) scaleY(1.02) translateY(-7px); }
+}
+@keyframes tomaGentleShake {
+  0%, 100% { transform: translateX(0) rotate(0deg); }
+  18% { transform: translateX(-5px) rotate(-2.5deg); }
+  36% { transform: translateX(5px) rotate(2.5deg); }
+  54% { transform: translateX(-3px) rotate(-1.5deg); }
+  72% { transform: translateX(3px) rotate(1.5deg); }
+}
+
+/* Style modal — hat row bleeds past sheet padding with edge fade */
+.style-hat-bleed {
+  position: relative;
+  margin-bottom: 20px;
+  overflow: visible;
+}
+.style-hat-fade-wrap {
+  position: relative;
+  --hat-fade: 32px;
+  overflow: visible;
+}
+.style-hat-fade-wrap::before,
+.style-hat-fade-wrap::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: var(--hat-fade);
+  z-index: 2;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+.style-hat-fade-wrap::before {
+  left: 0;
+  background: linear-gradient(to right, #FDF8EF 12%, rgba(253, 248, 239, 0));
+  opacity: var(--fade-left-opacity, 0);
+}
+.style-hat-fade-wrap::after {
+  right: 0;
+  background: linear-gradient(to left, #FDF8EF 12%, rgba(253, 248, 239, 0));
+  opacity: var(--fade-right-opacity, 1);
+}
+.style-hat-scroll {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  cursor: grab;
+  padding: 10px 20px 14px;
+}
+.style-hat-scroll.is-dragging {
+  cursor: grabbing;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.style-hat-scroll::-webkit-scrollbar {
+  display: none;
+}
+.style-hat-scroll button {
+  touch-action: manipulation;
+  flex-shrink: 0;
+  margin: 2px 0;
 }
 @keyframes titlePulse {
   0%, 100% { opacity: 0.3; }

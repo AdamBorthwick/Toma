@@ -1,15 +1,45 @@
 import { supabase } from './supabase.js'
+import { normalizeHatKey } from './data/monster.jsx'
+
+// ── Errors ────────────────────────────────────────────────────────────────────
+
+export class DbError extends Error {
+  constructor(message, cause = null) {
+    super(message)
+    this.name = 'DbError'
+    this.cause = cause
+  }
+}
+
+function check(result, context) {
+  if (result?.error) throw new DbError(`${context}: ${result.error.message}`, result.error)
+  return result?.data
+}
 
 // ── Identity ──────────────────────────────────────────────────────────────────
 
 export async function getMyIp() {
-  const r = await fetch('https://api.ipify.org?format=json')
-  return (await r.json()).ip
+  let r
+  try {
+    r = await fetch('https://api.ipify.org?format=json')
+  } catch (e) {
+    throw new DbError('Could not reach identity service', e)
+  }
+  if (!r.ok) throw new DbError(`Identity service returned ${r.status}`)
+  const json = await r.json()
+  if (!json?.ip) throw new DbError('Identity service returned no IP')
+  return json.ip
 }
 
 export async function getOrCreateUser(ip) {
-  await supabase.from('users').upsert({ ip }, { onConflict: 'ip', ignoreDuplicates: true })
-  const { data } = await supabase.from('users').select('id').eq('ip', ip).single()
+  check(
+    await supabase.from('users').upsert({ ip }, { onConflict: 'ip', ignoreDuplicates: true }),
+    'create user'
+  )
+  const data = check(
+    await supabase.from('users').select('id').eq('ip', ip).single(),
+    'lookup user'
+  )
   return data.id
 }
 
@@ -58,193 +88,308 @@ function rowToBook(row) {
   }
 }
 
+function dedupeBooks(books) {
+  const seen = new Set()
+  return books.filter(b => {
+    if (!b?.id || seen.has(b.id)) return false
+    seen.add(b.id)
+    return true
+  })
+}
+
 // ── Load ───────────────────────────────────────────────────────────────────────
 
 export async function loadShelfByUserId(userId) {
-  const { data: bs } = await supabase.from('bookshelves')
-    .select('id, share_id, name').eq('user_id', userId).maybeSingle()
+  const bs = check(
+    await supabase.from('bookshelves')
+      .select('id, share_id, name').eq('user_id', userId).maybeSingle(),
+    'load bookshelf'
+  )
   if (!bs) return null
   return { shareId: bs.share_id, name: bs.name, ...(await _loadRows(bs.id)) }
 }
 
 export async function loadShelfByShareId(shareId) {
-  const { data: bs } = await supabase.from('bookshelves')
-    .select('id, user_id, name').eq('share_id', shareId).maybeSingle()
+  const bs = check(
+    await supabase.from('bookshelves')
+      .select('id, user_id, name').eq('share_id', shareId).maybeSingle(),
+    'load shared bookshelf'
+  )
   if (!bs) return null
   return { ownerUserId: bs.user_id, name: bs.name, ...(await _loadRows(bs.id)) }
 }
 
 async function _loadRows(bookcaseId) {
-  const { data: rows } = await supabase.from('shelf_rows')
-    .select('id, position, label, color_key')
-    .eq('bookshelf_id', bookcaseId).order('position')
+  const rows = check(
+    await supabase.from('shelf_rows')
+      .select('id, position, label, color_key')
+      .eq('bookshelf_id', bookcaseId).order('position'),
+    'load shelf rows'
+  ) ?? []
 
-  const rowIds = (rows ?? []).map(r => r.id)
+  const rowIds = rows.map(r => r.id)
 
-  const { data: bookItems } = rowIds.length
-    ? await supabase.from('shelf_books')
-        .select('id, shelf_row_id, item_type, start_slot, slot_width, book_id')
-        .in('shelf_row_id', rowIds)
-    : { data: [] }
+  const bookItems = rowIds.length
+    ? check(
+        await supabase.from('shelf_books')
+          .select('id, shelf_row_id, item_type, start_slot, slot_width, book_id')
+          .in('shelf_row_id', rowIds),
+        'load shelf books'
+      ) ?? []
+    : []
 
-  const stackIds = (bookItems ?? []).filter(i => i.item_type === 'horizontal-stack').map(i => i.id)
-  const { data: stackBooks } = stackIds.length
-    ? await supabase.from('stack_books')
-        .select('shelf_book_id, book_id, position')
-        .in('shelf_book_id', stackIds).order('position')
-    : { data: [] }
+  const stackIds = bookItems.filter(i => i.item_type === 'horizontal-stack').map(i => i.id)
+  const stackBooks = stackIds.length
+    ? check(
+        await supabase.from('stack_books')
+          .select('shelf_book_id, book_id, position')
+          .in('shelf_book_id', stackIds).order('position'),
+        'load stack books'
+      ) ?? []
+    : []
 
-  const { data: decorItems } = rowIds.length
-    ? await supabase.from('shelf_decor')
-        .select('id, shelf_row_id, decor_type, start_slot, slot_width')
-        .in('shelf_row_id', rowIds)
-    : { data: [] }
+  const decorItems = rowIds.length
+    ? check(
+        await supabase.from('shelf_decor')
+          .select('id, shelf_row_id, decor_type, start_slot, slot_width')
+          .in('shelf_row_id', rowIds),
+        'load shelf decor'
+      ) ?? []
+    : []
 
   const bookIds = [...new Set([
-    ...(bookItems ?? []).map(i => i.book_id).filter(Boolean),
-    ...(stackBooks ?? []).map(sb => sb.book_id).filter(Boolean),
+    ...bookItems.map(i => i.book_id).filter(Boolean),
+    ...stackBooks.map(sb => sb.book_id).filter(Boolean),
   ])]
-  const { data: bookRows } = bookIds.length
-    ? await supabase.from('books').select('*').in('id', bookIds)
-    : { data: [] }
-  const booksById = new Map((bookRows ?? []).map(b => [b.id, rowToBook(b)]))
+  const bookRows = bookIds.length
+    ? check(
+        await supabase.from('books').select('*').in('id', bookIds),
+        'load books'
+      ) ?? []
+    : []
+  const booksById = new Map(bookRows.map(b => [b.id, rowToBook(b)]))
 
-  return {
-    rows: rows ?? [],
-    bookItems: bookItems ?? [],
-    stackBooks: stackBooks ?? [],
-    decorItems: decorItems ?? [],
-    booksById,
-  }
+  return { rows, bookItems, stackBooks, decorItems, booksById }
 }
 
 // ── Save ───────────────────────────────────────────────────────────────────────
 
-export async function persistShelf(userId, shelfName, shelfConfigs, shelfContents) {
-  // 1. Upsert all books referenced on this shelf
-  const booksToUpsert = []
-  for (const row of shelfContents) {
-    for (const item of row) {
-      if (item.type === 'vertical-book' && item.book) booksToUpsert.push(item.book)
-      if (item.type === 'horizontal-stack') booksToUpsert.push(...(item.books ?? []))
-    }
-  }
-  if (booksToUpsert.length) {
-    await supabase.from('books').upsert(booksToUpsert.map(bookToRow), { onConflict: 'id' })
-  }
-
-  // 2. Upsert bookshelf row
-  const { data: bs } = await supabase.from('bookshelves').upsert(
-    { user_id: userId, name: shelfName, updated_at: new Date().toISOString() },
-    { onConflict: 'user_id' }
-  ).select('id').single()
-
-  // 3. Delete old rows (cascades to shelf_books, stack_books, shelf_decor)
-  await supabase.from('shelf_rows').delete().eq('bookshelf_id', bs.id)
-  if (!shelfConfigs.length) return
-
-  // 4. Insert shelf_rows
-  const { data: savedRows } = await supabase.from('shelf_rows').insert(
-    shelfConfigs.map((cfg, i) => ({
-      bookshelf_id: bs.id, position: i, label: cfg.label, color_key: cfg.colorKey,
-    }))
-  ).select('id, position')
-
-  // 5. Insert shelf_books, stack_books, shelf_decor per row
-  for (const row of savedRows ?? []) {
+async function _insertShelfContents(savedRows, shelfContents) {
+  for (const row of savedRows) {
     const items = shelfContents[row.position] ?? []
     const bookItemsForRow  = items.filter(i => i.type === 'vertical-book' || i.type === 'horizontal-stack')
     const decorItemsForRow = items.filter(i => i.type !== 'vertical-book' && i.type !== 'horizontal-stack')
 
     if (bookItemsForRow.length) {
-      const { data: savedBooks } = await supabase.from('shelf_books').insert(
-        bookItemsForRow.map(item => ({
-          shelf_row_id: row.id,
-          item_type:    item.type,
-          start_slot:   item.startSlot,
-          slot_width:   item.slotWidth,
-          book_id:      item.type === 'vertical-book' ? (item.book?.id ?? null) : null,
-        }))
-      ).select('id, start_slot, item_type')
+      const savedBooks = check(
+        await supabase.from('shelf_books').insert(
+          bookItemsForRow.map(item => ({
+            shelf_row_id: row.id,
+            item_type:    item.type,
+            start_slot:   item.startSlot,
+            slot_width:   item.slotWidth,
+            book_id:      item.type === 'vertical-book' ? (item.book?.id ?? null) : null,
+          }))
+        ).select('id, start_slot, item_type'),
+        'insert shelf books'
+      ) ?? []
 
       const stackInserts = []
-      for (const si of (savedBooks ?? []).filter(i => i.item_type === 'horizontal-stack')) {
+      for (const si of savedBooks.filter(i => i.item_type === 'horizontal-stack')) {
         const orig = bookItemsForRow.find(i => i.startSlot === si.start_slot)
         orig?.books?.forEach((b, pos) =>
           stackInserts.push({ shelf_book_id: si.id, book_id: b.id, position: pos })
         )
       }
-      if (stackInserts.length) await supabase.from('stack_books').insert(stackInserts)
+      if (stackInserts.length) {
+        check(await supabase.from('stack_books').insert(stackInserts), 'insert stack books')
+      }
     }
 
     if (decorItemsForRow.length) {
-      await supabase.from('shelf_decor').insert(
-        decorItemsForRow.map(item => ({
-          shelf_row_id: row.id,
-          decor_type:   item.type,
-          start_slot:   item.startSlot,
-          slot_width:   item.slotWidth,
-        }))
+      check(
+        await supabase.from('shelf_decor').insert(
+          decorItemsForRow.map(item => ({
+            shelf_row_id: row.id,
+            decor_type:   item.type,
+            start_slot:   item.startSlot,
+            slot_width:   item.slotWidth,
+          }))
+        ),
+        'insert shelf decor'
       )
     }
   }
 }
 
+// Insert new rows first, then delete stale rows — so a failed insert never wipes data.
+export async function persistShelf(userId, shelfName, shelfConfigs, shelfContents) {
+  const booksToUpsert = dedupeBooks(
+    shelfContents.flatMap(row => row.flatMap(item => {
+      if (item.type === 'vertical-book' && item.book) return [item.book]
+      if (item.type === 'horizontal-stack') return item.books ?? []
+      return []
+    }))
+  )
+  if (booksToUpsert.length) {
+    check(
+      await supabase.from('books').upsert(booksToUpsert.map(bookToRow), { onConflict: 'id' }),
+      'upsert books'
+    )
+  }
+
+  const bs = check(
+    await supabase.from('bookshelves').upsert(
+      { user_id: userId, name: shelfName, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id' }
+    ).select('id').single(),
+    'upsert bookshelf'
+  )
+
+  const existingRows = check(
+    await supabase.from('shelf_rows').select('id').eq('bookshelf_id', bs.id),
+    'load existing shelf rows'
+  ) ?? []
+  const oldRowIds = existingRows.map(r => r.id)
+
+  if (!shelfConfigs.length) {
+    if (oldRowIds.length) {
+      check(
+        await supabase.from('shelf_rows').delete().in('id', oldRowIds),
+        'clear shelf rows'
+      )
+    }
+    return
+  }
+
+  const savedRows = check(
+    await supabase.from('shelf_rows').insert(
+      shelfConfigs.map((cfg, i) => ({
+        bookshelf_id: bs.id, position: i, label: cfg.label, color_key: cfg.colorKey,
+      }))
+    ).select('id, position'),
+    'insert shelf rows'
+  ) ?? []
+
+  await _insertShelfContents(savedRows, shelfContents)
+
+  if (oldRowIds.length) {
+    check(
+      await supabase.from('shelf_rows').delete().in('id', oldRowIds),
+      'remove stale shelf rows'
+    )
+  }
+}
+
 export async function getShareId(userId) {
-  const { data } = await supabase.from('bookshelves').select('share_id').eq('user_id', userId).maybeSingle()
+  const data = check(
+    await supabase.from('bookshelves').select('share_id').eq('user_id', userId).maybeSingle(),
+    'load share id'
+  )
   return data?.share_id ?? null
 }
 
 // ── Reviews ────────────────────────────────────────────────────────────────────
 
 export async function loadReviews(userId) {
-  const { data } = await supabase.from('reviews')
-    .select('book_id, review_text, rating').eq('user_id', userId)
-  return new Map((data ?? []).map(r => [r.book_id, { text: r.review_text, rating: r.rating }]))
+  const data = check(
+    await supabase.from('reviews')
+      .select('book_id, review_text, rating').eq('user_id', userId),
+    'load reviews'
+  ) ?? []
+  return new Map(data.map(r => [r.book_id, { text: r.review_text, rating: r.rating }]))
 }
 
 export async function saveReview(userId, bookId, text, rating, book = null) {
   if (book) {
-    await supabase.from('books').upsert(bookToRow(book), { onConflict: 'id' })
+    check(
+      await supabase.from('books').upsert(bookToRow(book), { onConflict: 'id' }),
+      'upsert review book'
+    )
   }
-  await supabase.from('reviews').upsert(
-    { user_id: userId, book_id: bookId, review_text: text, rating, updated_at: new Date().toISOString() },
-    { onConflict: 'user_id,book_id' }
+  check(
+    await supabase.from('reviews').upsert(
+      { user_id: userId, book_id: bookId, review_text: text, rating, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id,book_id' }
+    ),
+    'save review'
   )
 }
 
 export async function deleteReview(userId, bookId) {
-  await supabase.from('reviews').delete().eq('user_id', userId).eq('book_id', bookId)
+  check(
+    await supabase.from('reviews').delete().eq('user_id', userId).eq('book_id', bookId),
+    'delete review'
+  )
 }
 
 export async function setUsername(userId, username) {
-  await supabase.from('users').update({ username }).eq('id', userId)
+  check(
+    await supabase.from('users').update({ username }).eq('id', userId),
+    'set username'
+  )
 }
 
 export async function getUsername(userId) {
-  const { data } = await supabase.from('users').select('username').eq('id', userId).single()
+  const data = check(
+    await supabase.from('users').select('username').eq('id', userId).single(),
+    'get username'
+  )
   return data?.username ?? null
+}
+
+export async function getMonsterLook(userId) {
+  try {
+    const data = check(
+      await supabase.from('users').select('monster_color, monster_hat, monster_hat_color').eq('id', userId).single(),
+      'get monster look'
+    )
+    return {
+      colorKey: data?.monster_color ?? 'green',
+      hatKey: normalizeHatKey(data?.monster_hat ?? 'none'),
+      hatColorKey: data?.monster_hat_color ?? 'red',
+    }
+  } catch {
+    return { colorKey: 'green', hatKey: 'none', hatColorKey: 'red' }
+  }
+}
+
+export async function setMonsterLook(userId, colorKey, hatKey, hatColorKey) {
+  check(
+    await supabase.from('users').update({
+      monster_color: colorKey,
+      monster_hat: hatKey,
+      monster_hat_color: hatColorKey,
+    }).eq('id', userId),
+    'set monster look'
+  )
 }
 
 // ── Inventory ──────────────────────────────────────────────────────────────────
 
 export async function loadInventory(userId) {
-  const { data } = await supabase
-    .from('inventory_items')
-    .select('id, item_type, book_id, book_ids, decor_type, books(*)')
-    .eq('user_id', userId)
-    .order('added_at')
+  const data = check(
+    await supabase
+      .from('inventory_items')
+      .select('id, item_type, book_id, book_ids, decor_type, books(*)')
+      .eq('user_id', userId)
+      .order('added_at'),
+    'load inventory'
+  ) ?? []
 
   const allStackBookIds = [...new Set(
-    (data ?? []).filter(r => r.item_type === 'stack').flatMap(r => r.book_ids ?? [])
+    data.filter(r => r.item_type === 'stack').flatMap(r => r.book_ids ?? [])
   )]
   let stackBooksById = new Map()
   if (allStackBookIds.length) {
-    const { data: bRows } = await supabase.from('books').select('*').in('id', allStackBookIds)
-    stackBooksById = new Map((bRows ?? []).map(b => [b.id, rowToBook(b)]))
+    const bRows = check(
+      await supabase.from('books').select('*').in('id', allStackBookIds),
+      'load inventory stack books'
+    ) ?? []
+    stackBooksById = new Map(bRows.map(b => [b.id, rowToBook(b)]))
   }
 
-  return (data ?? []).map(r => ({
+  return data.map(r => ({
     id: r.id,
     type: r.item_type,
     book: r.item_type === 'book' ? rowToBook(r.books) : null,
@@ -256,35 +401,54 @@ export async function loadInventory(userId) {
 }
 
 export async function addInventoryBook(userId, book) {
-  await supabase.from('books').upsert(bookToRow(book), { onConflict: 'id' })
-  const { data } = await supabase
-    .from('inventory_items')
-    .insert({ user_id: userId, item_type: 'book', book_id: book.id })
-    .select('id').single()
+  check(
+    await supabase.from('books').upsert(bookToRow(book), { onConflict: 'id' }),
+    'upsert inventory book'
+  )
+  const data = check(
+    await supabase
+      .from('inventory_items')
+      .insert({ user_id: userId, item_type: 'book', book_id: book.id })
+      .select('id').single(),
+    'add inventory book'
+  )
   return data.id
 }
 
 export async function addInventoryStack(userId, books) {
-  await supabase.from('books').upsert(books.map(bookToRow), { onConflict: 'id' })
-  const { data } = await supabase
-    .from('inventory_items')
-    .insert({ user_id: userId, item_type: 'stack', book_ids: books.map(b => b.id) })
-    .select('id').single()
+  const unique = dedupeBooks(books)
+  check(
+    await supabase.from('books').upsert(unique.map(bookToRow), { onConflict: 'id' }),
+    'upsert inventory stack books'
+  )
+  const data = check(
+    await supabase
+      .from('inventory_items')
+      .insert({ user_id: userId, item_type: 'stack', book_ids: unique.map(b => b.id) })
+      .select('id').single(),
+    'add inventory stack'
+  )
   return data.id
 }
 
 export async function addInventoryDecor(userId, decorType) {
-  const { data } = await supabase
-    .from('inventory_items')
-    .insert({ user_id: userId, item_type: 'decor', decor_type: decorType })
-    .select('id').single()
+  const data = check(
+    await supabase
+      .from('inventory_items')
+      .insert({ user_id: userId, item_type: 'decor', decor_type: decorType })
+      .select('id').single(),
+    'add inventory decor'
+  )
   return data.id
 }
 
 export async function removeInventoryItem(userId, inventoryItemId) {
-  await supabase
-    .from('inventory_items')
-    .delete()
-    .eq('id', inventoryItemId)
-    .eq('user_id', userId)
+  check(
+    await supabase
+      .from('inventory_items')
+      .delete()
+      .eq('id', inventoryItemId)
+      .eq('user_id', userId),
+    'remove inventory item'
+  )
 }

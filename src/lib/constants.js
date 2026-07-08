@@ -16,5 +16,9 @@ const MOBILE_ZOOMED_IN_PEEK_LEFT = 24   // screen px of cave past the left shelf
 const MOBILE_ZOOMED_IN_RIGHT = 940       // stage px — pan far enough right to reveal Toma's head
 const MOBILE_ZOOMED_IN_MONSTER_BIAS = 52 // stage px — default framing favors the right peek
 
+function isRotatableDragType(type) {
+  return type === 'horizontal-stack' || type === 'vertical-book'
+}
 
-export { publicPath, SLOT_W, NUM_SLOTS, SHELF_H, MOBILE_HEADER_PAD, MOBILE_ZOOMED_OUT_FIT, MOBILE_ZOOMED_IN_FIT, BOOKCASE_LEFT, BOOKCASE_WIDTH, BOOKCASE_RIGHT, MOBILE_ZOOMED_IN_PEEK_LEFT, MOBILE_ZOOMED_IN_RIGHT, MOBILE_ZOOMED_IN_MONSTER_BIAS }
+
+export { publicPath, SLOT_W, NUM_SLOTS, SHELF_H, MOBILE_HEADER_PAD, MOBILE_ZOOMED_OUT_FIT, MOBILE_ZOOMED_IN_FIT, BOOKCASE_LEFT, BOOKCASE_WIDTH, BOOKCASE_RIGHT, MOBILE_ZOOMED_IN_PEEK_LEFT, MOBILE_ZOOMED_IN_RIGHT, MOBILE_ZOOMED_IN_MONSTER_BIAS, isRotatableDragType }

@@ -149,7 +149,10 @@ function EditableShelfRow({ shelf, shelfIdx, items, dragging, dropTarget, innerR
           </div>
 
           {/* Placed items */}
-          {items.map(it => (
+          {items.map(it => {
+            const decorHover = hoveredItemId === it.id
+              && it.type !== 'vertical-book' && it.type !== 'horizontal-stack'
+            return (
             <div
               key={it.id}
               onMouseEnter={() => setHoveredItemId(it.id)}
@@ -159,16 +162,17 @@ function EditableShelfRow({ shelf, shelfIdx, items, dragging, dropTarget, innerR
                 position: 'absolute', left: it.startSlot * SLOT_W, bottom: 0,
                 width: it.slotWidth * SLOT_W, height: '100%',
                 cursor: 'grab', zIndex: hoveredItemId === it.id ? 5 : 2,
-                // Books/stacks have their own hover lift; give decor the same affordance
-                // so every grabbable item visibly responds to the mouse.
-                transform: (hoveredItemId === it.id && it.type !== 'vertical-book' && it.type !== 'horizontal-stack')
-                  ? 'translateY(-6px)' : 'none',
-                transition: 'transform .22s cubic-bezier(.34,1.56,.64,1)',
                 // 'none' so a touch-drag on the item (in any direction, incl. vertically to
                 // another shelf) is captured as a drag, not swallowed by page scrolling.
                 touchAction: 'none',
               }}
             >
+              {/* Transform on an inner layer so the hover hit box stays put (no bounce). */}
+              <div style={{
+                width: '100%', height: '100%',
+                transform: decorHover ? 'translateY(-6px)' : 'none',
+                transition: 'transform .22s cubic-bezier(.34,1.56,.64,1)',
+              }}>
               {it.type === 'vertical-book' && (
                 <PlacedVerticalBook
                   book={it.book} w={it.slotWidth * SLOT_W} h={shelfH}
@@ -195,8 +199,10 @@ function EditableShelfRow({ shelf, shelfIdx, items, dragging, dropTarget, innerR
               {it.type === 'pot'     && <PlacedFlower     w={it.slotWidth * SLOT_W} />}
               {it.type === 'candle'  && <PlacedLight      w={it.slotWidth * SLOT_W} />}
               {it.type === 'mug'     && <PlacedCoffeeCup  w={it.slotWidth * SLOT_W} />}
+              </div>
             </div>
-          ))}
+            )
+          })}
 
         </div>
       </div>

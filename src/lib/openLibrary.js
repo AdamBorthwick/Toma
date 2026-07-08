@@ -198,4 +198,4 @@ async function fetchDefaultShelfData() {
 }
 
 
-export { mapOpenLibraryBook, DEFAULT_QUERIES }
+export { mapOpenLibraryBook, DEFAULT_QUERIES, fetchDefaultShelfData }

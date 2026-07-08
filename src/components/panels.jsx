@@ -1,12 +1,15 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { mapOpenLibraryBook } from '../lib/openLibrary.js'
 import { ROYGBIV } from '../data/shelves.jsx'
-import { IconBooks, IconOpenBook, IconTrash, IconPencil, IconClose, IconCheck, IconLeaf } from './icons.jsx'
+import { IconBooks, IconOpenBook, IconTrash, IconPencil, IconClose, IconCheck, IconLeaf, IconPerson } from './icons.jsx'
 import { PlacedFlower, PlacedFlower2, PlacedCoffeeCup, PlacedLight, PlacedClock } from './decor.jsx'
+import { TomaHead } from './scene.jsx'
+import { MonsterHatGraphic, TOMA_FACE_VIEWBOX, getHatPickerViewBox } from './hats.jsx'
+import { MONSTER_COLORS, MONSTER_HATS, getMonsterColors } from '../data/monster.jsx'
 
 // ─── SidePanelButtons ─────────────────────────────────────────────────────────
 
-function SidePanelButtons({ editDragging, onBook, onDecor, onShelves, isEditMode, inventory = [], onInventoryItemPlace, flashInventory = false, isMobile = false, onToggleEdit, onShare, showShare = false }) {
+function SidePanelButtons({ editDragging, onBook, onDecor, onShelves, onMonster, isEditMode, inventory = [], onInventoryItemPlace, flashInventory = false, isMobile = false, onToggleEdit, onShare, showShare = false }) {
   const [invHover, setInvHover] = useState(false)
 
   useEffect(() => {
@@ -108,6 +111,13 @@ function SidePanelButtons({ editDragging, onBook, onDecor, onShelves, isEditMode
           onMouseEnter={onHover} onMouseLeave={offHover}>
           <IconLeaf size={isMobile ? 22 : 28} color="#FDF8EF" />
           <span>Decor</span>
+        </button>
+      </div>
+      <div style={isMobile ? slide(isEditMode) : undefined}>
+        <button onClick={onMonster} style={{ ...btnBase, background: '#254CA4', color: '#FDF8EF' }}
+          onMouseEnter={onHover} onMouseLeave={offHover}>
+          <IconPerson size={isMobile ? 22 : 28} color="#FDF8EF" />
+          <span style={isMobile ? { fontSize: 11 } : undefined}>Style</span>
         </button>
       </div>
       {/* Edit shelf — opens the shelf manager overlay (add / rename / delete / reorder).
@@ -540,12 +550,22 @@ function BookAddPanel({ isOpen, selectedBooks, onToggleBook, onConfirm, onClose,
 function DecorAddPanel({ isOpen, onSelect, onClose, isMobile = false }) {
   const [picked, setPicked] = useState(null)
   if (!isOpen) return null
+  const decorPreviewStyle = {
+    height: 72,
+    width: '100%',
+    maxWidth: 52,
+    margin: '0 auto',
+    overflow: 'hidden',
+    display: 'flex',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  }
   const items = [
-    { type: 'flower',  label: 'Plant',   preview: <div style={{ height: 90, position: 'relative', width: 52, overflow: 'visible' }}><PlacedFlower    w={52} /></div> },
-    { type: 'flower2', label: 'Plant 2', preview: <div style={{ height: 90, position: 'relative', width: 52, overflow: 'visible' }}><PlacedFlower2   w={52} /></div> },
-    { type: 'coffee',  label: 'Coffee',  preview: <div style={{ height: 90, position: 'relative', width: 52, overflow: 'visible' }}><PlacedCoffeeCup w={52} /></div> },
-    { type: 'light',   label: 'Candle',  preview: <div style={{ height: 90, position: 'relative', width: 52, overflow: 'visible' }}><PlacedLight     w={52} /></div> },
-    { type: 'clock',   label: 'Clock',   preview: <div style={{ height: 90, position: 'relative', width: 52, overflow: 'visible' }}><PlacedClock     w={52} /></div> },
+    { type: 'flower',  label: 'Plant',   preview: <div style={decorPreviewStyle}><PlacedFlower    w={44} /></div> },
+    { type: 'flower2', label: 'Plant 2', preview: <div style={decorPreviewStyle}><PlacedFlower2   w={44} /></div> },
+    { type: 'coffee',  label: 'Coffee',  preview: <div style={decorPreviewStyle}><PlacedCoffeeCup w={44} /></div> },
+    { type: 'light',   label: 'Candle',  preview: <div style={decorPreviewStyle}><PlacedLight     w={44} /></div> },
+    { type: 'clock',   label: 'Clock',   preview: <div style={decorPreviewStyle}><PlacedClock     w={44} /></div> },
   ]
   return (
     <div
@@ -602,11 +622,574 @@ function DecorAddPanel({ isOpen, onSelect, onClose, isMobile = false }) {
   )
 }
 
-// ─── ShelfListModal — mobile bottom sheet listing shelves (edit / delete / add) ─
+// ─── MonsterCustomizeModal ────────────────────────────────────────────────────
 
-function ShelfListModal({ shelfConfigs, getColors, shelfName, username, onEditPlate, onEditShelf, onDeleteShelf, onAddShelf, onReorder, onClose }) {
+function TomaAppearancePreview({
+  bodyColor,
+  accentColor,
+  hat,
+  compact = false,
+  mouthReactGen = 0,
+  shakeGen = 0,
+  hatSwapGen = 0,
+  hatSwapFrom = 'none',
+  hatSwapTo = 'none',
+  hatColorKey = 'red',
+  hatSwapFromColor = 'red',
+  hatSwapToColor = 'red',
+  onHatSwapComplete,
+}) {
+  const headW = compact ? 120 : 140
+  const headH = compact ? 122 : 142
+  const neckW = compact ? 46 : 54
+  const neckH = compact ? 26 : 30
+  const [swapP, setSwapP] = useState(0)
+  const [activeSwap, setActiveSwap] = useState(null)
+  const swapAnimRef = useRef(null)
+
+  useEffect(() => {
+    if (hatSwapGen === 0 || hatSwapFrom === hatSwapTo) return
+    const swap = { from: hatSwapFrom, to: hatSwapTo, fromColor: hatSwapFromColor, toColor: hatSwapToColor }
+    setActiveSwap(swap)
+    let start = null
+    const duration = 1680
+    const tick = (now) => {
+      if (start === null) start = now
+      const t = Math.min(1, (now - start) / duration)
+      setSwapP(t)
+      if (t < 1) {
+        swapAnimRef.current = requestAnimationFrame(tick)
+      } else {
+        setSwapP(0)
+        setActiveSwap(null)
+        onHatSwapComplete?.(swap.to, swap.toColor)
+      }
+    }
+    if (swapAnimRef.current) cancelAnimationFrame(swapAnimRef.current)
+    setSwapP(0.001)
+    swapAnimRef.current = requestAnimationFrame(tick)
+    return () => { if (swapAnimRef.current) cancelAnimationFrame(swapAnimRef.current) }
+  }, [hatSwapGen, hatSwapFrom, hatSwapTo, hatSwapFromColor, hatSwapToColor, onHatSwapComplete])
+
+  const smooth = p => p * p * (3 - 2 * p)
+  const swapping = swapP > 0 && activeSwap !== null
+  const swapFrom = activeSwap?.from ?? hatSwapFrom
+  const swapTo = activeSwap?.to ?? hatSwapTo
+  const swapFromColor = activeSwap?.fromColor ?? hatSwapFromColor
+  const swapToColor = activeSwap?.toColor ?? hatSwapToColor
+
+  let lookUp = 0
+  if (swapP <= 0.12) lookUp = smooth(swapP / 0.12)
+  else if (swapP <= 0.58) lookUp = 1
+  else if (swapP <= 0.86) lookUp = 1 - smooth((swapP - 0.58) / 0.28)
+  const irisOff = { x: 0, y: -5.8 * lookUp }
+  const headTilt = -4.5 * lookUp
+
+  let headHat = hat
+  let headHatColor = hatColorKey
+  if (swapping) {
+    if (swapP < 0.14) {
+      headHat = swapFrom
+      headHatColor = swapFromColor
+    } else if (swapP >= 0.9) {
+      headHat = swapTo
+      headHatColor = swapToColor
+    } else {
+      headHat = 'none'
+    }
+  }
+
+  const showFall = swapFrom !== 'none' && swapP >= 0.14 && swapP < 0.64
+  const fallProgress = showFall ? smooth(Math.min(1, (swapP - 0.14) / 0.42)) : 0
+  const fallY = fallProgress * (compact ? 98 : 116)
+  const fallX = -fallProgress * (compact ? 22 : 28)
+  const fallRot = -fallProgress * 32
+
+  const showIncoming = swapTo !== 'none' && swapP >= 0.54 && swapP < 0.9
+  const inProgress = showIncoming ? smooth(Math.min(1, (swapP - 0.54) / 0.3)) : 0
+  const inY = (1 - inProgress) * (compact ? -58 : -68)
+
+  const hatLayerStyle = {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: headW,
+    height: headH,
+    overflow: 'visible',
+    pointerEvents: 'none',
+    zIndex: 4,
+  }
+
+  return (
+    <div style={{
+      animation: swapping ? 'none' : 'tomaBreath 3.5s ease-in-out infinite',
+      transformOrigin: 'center bottom',
+    }}>
+      <div
+        key={shakeGen}
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          animation: shakeGen > 0 ? 'tomaGentleShake 0.55s ease-in-out' : 'none',
+          transformOrigin: 'center bottom',
+        }}
+      >
+        <div style={{
+          position: 'relative',
+          width: headW,
+          height: headH,
+          transform: `rotate(${headTilt}deg)`,
+          transformOrigin: '50% 88%',
+        }}>
+          {showFall && (
+            <svg
+              key={`fall-${hatSwapGen}-${swapFrom}`}
+              viewBox={TOMA_FACE_VIEWBOX}
+              fill="none"
+              style={{
+                ...hatLayerStyle,
+                overflow: 'visible',
+                transform: `translate(${fallX}px, ${fallY}px) rotate(${fallRot}deg)`,
+                transformOrigin: '50% 16%',
+              }}
+            >
+              <MonsterHatGraphic hat={swapFrom} hatColorKey={swapFromColor} />
+            </svg>
+          )}
+          {showIncoming && (
+            <svg
+              key={`in-${hatSwapGen}-${swapTo}`}
+              viewBox={TOMA_FACE_VIEWBOX}
+              fill="none"
+              style={{
+                ...hatLayerStyle,
+                overflow: 'visible',
+                transform: `translateY(${inY}px)`,
+                transformOrigin: '50% 16%',
+              }}
+            >
+              <MonsterHatGraphic hat={swapTo} hatColorKey={swapToColor} />
+            </svg>
+          )}
+          <div style={{ width: headW, height: headH, lineHeight: 0, position: 'relative', zIndex: 2 }}>
+            <TomaHead
+              irisOff={irisOff}
+              bodyColor={bodyColor}
+              accentColor={accentColor}
+              hat={headHat}
+              hatColorKey={headHatColor}
+              mouthReactGen={mouthReactGen}
+            />
+          </div>
+        </div>
+        <svg
+          width={neckW}
+          height={neckH}
+          viewBox="0 0 54 30"
+          fill="none"
+          style={{ display: 'block', marginTop: -12 }}
+          aria-hidden="true"
+        >
+          <path
+            d="M14 0 C18 6 22 8 27 8 C32 8 36 6 40 0 C43 0 46 3 46 26 C46 28 44 30 27 30 C10 30 8 28 8 26 C8 3 11 0 14 0Z"
+            fill={bodyColor}
+          />
+          <path
+            d="M20 8 C23 10 25 10 27 10 C29 10 31 10 34 8"
+            stroke={accentColor}
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            opacity="0.55"
+          />
+        </svg>
+      </div>
+    </div>
+  )
+}
+
+function HatOnlyPreview({ hat, hatColorKey = 'red' }) {
+  if (hat === 'none') {
+    return (
+      <svg width="100%" height="100%" viewBox="0 0 48 32" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+        <line x1="10" y1="16" x2="38" y2="16" stroke="#C8C8D8" strokeWidth="2.5" strokeLinecap="round" />
+      </svg>
+    )
+  }
+  return (
+    <svg
+      width="100%"
+      height="100%"
+      viewBox={getHatPickerViewBox(hat)}
+      preserveAspectRatio="xMidYMid meet"
+      aria-hidden="true"
+      style={{ display: 'block', overflow: 'hidden' }}
+    >
+      <MonsterHatGraphic hat={hat} hatColorKey={hatColorKey} />
+    </svg>
+  )
+}
+
+function HatScrollRow({ children, bleed = 0 }) {
+  const rowRef = useRef(null)
+  const dragRef = useRef({
+    active: false,
+    pending: false,
+    startX: 0,
+    scrollLeft: 0,
+    pointerId: null,
+  })
+  const draggedRef = useRef(false)
+  const [dragging, setDragging] = useState(false)
+  const [fade, setFade] = useState({ left: false, right: false })
+
+  const updateFade = useCallback(() => {
+    const el = rowRef.current
+    if (!el) return
+    const max = Math.max(0, el.scrollWidth - el.clientWidth)
+    setFade({
+      left: el.scrollLeft > 4,
+      right: el.scrollLeft < max - 4,
+    })
+  }, [])
+
+  useEffect(() => {
+    const el = rowRef.current
+    if (!el) return
+    function onWheel(e) {
+      const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
+      if (delta === 0) return
+      el.scrollLeft += delta
+      e.preventDefault()
+      updateFade()
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    el.addEventListener('scroll', updateFade, { passive: true })
+    const ro = new ResizeObserver(updateFade)
+    ro.observe(el)
+    updateFade()
+    return () => {
+      el.removeEventListener('wheel', onWheel)
+      el.removeEventListener('scroll', updateFade)
+      ro.disconnect()
+    }
+  }, [updateFade])
+
+  function startDrag(el, e) {
+    dragRef.current.active = true
+    draggedRef.current = true
+    setDragging(true)
+    el.setPointerCapture(e.pointerId)
+  }
+
+  function endDrag(e) {
+    const el = rowRef.current
+    const drag = dragRef.current
+    if (!drag.pending && !drag.active) return
+    if (drag.pointerId !== e.pointerId) return
+    drag.pending = false
+    drag.active = false
+    drag.pointerId = null
+    setDragging(false)
+    if (el?.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId)
+    updateFade()
+  }
+
+  return (
+    <div
+      className="style-hat-bleed"
+      style={{
+        marginLeft: -bleed,
+        marginRight: -bleed,
+        width: bleed ? `calc(100% + ${bleed * 2}px)` : '100%',
+      }}
+    >
+      <div
+        className="style-hat-fade-wrap"
+        style={{
+          '--fade-left-opacity': fade.left ? 1 : 0,
+          '--fade-right-opacity': fade.right ? 1 : 0,
+        }}
+      >
+        <div
+          ref={rowRef}
+          className={`style-hat-scroll${dragging ? ' is-dragging' : ''}`}
+          onPointerDown={(e) => {
+            if (e.pointerType === 'mouse' && e.button !== 0) return
+            const el = rowRef.current
+            if (!el) return
+            draggedRef.current = false
+            dragRef.current = {
+              active: false,
+              pending: true,
+              startX: e.clientX,
+              scrollLeft: el.scrollLeft,
+              pointerId: e.pointerId,
+            }
+          }}
+          onPointerMove={(e) => {
+            const drag = dragRef.current
+            if (!drag.pending && !drag.active) return
+            if (drag.pointerId !== e.pointerId) return
+            const el = rowRef.current
+            if (!el) return
+            const dx = e.clientX - drag.startX
+            if (!drag.active) {
+              if (Math.abs(dx) < 8) return
+              startDrag(el, e)
+            }
+            el.scrollLeft = drag.scrollLeft - dx
+            updateFade()
+          }}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+          onClickCapture={(e) => {
+            if (!draggedRef.current) return
+            e.preventDefault()
+            e.stopPropagation()
+            draggedRef.current = false
+          }}
+        >
+          {children}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ColorSwatchRow({ value, onChange, disabled = false }) {
+  return (
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: 'repeat(9, 1fr)',
+      gap: 6,
+      width: '100%',
+      marginBottom: 20,
+    }}>
+      {MONSTER_COLORS.map(c => (
+        <button
+          key={c.key}
+          onClick={() => !disabled && onChange(c.key)}
+          title={c.label}
+          disabled={disabled}
+          style={{
+            width: '100%',
+            aspectRatio: '1',
+            borderRadius: '50%',
+            background: c.body,
+            border: value === c.key ? `3px solid ${c.accent}` : '3px solid transparent',
+            cursor: disabled ? 'default' : 'pointer',
+            boxSizing: 'border-box',
+            opacity: disabled ? 0.35 : 1,
+            boxShadow: value === c.key ? `0 0 0 2px ${c.body}` : 'inset 0 0 0 1px rgba(0,0,0,0.12)',
+            transition: 'border .12s, box-shadow .12s, opacity .12s',
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
+function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, onSave, onClose, isMobile = false }) {
+  const [draftColor, setDraftColor] = useState(colorKey)
+  const [draftHat, setDraftHat] = useState(hatKey)
+  const [draftHatColor, setDraftHatColor] = useState(hatColorKey)
+  const [shakeGen, setShakeGen] = useState(0)
+  const [mouthReactGen, setMouthReactGen] = useState(0)
+  const [hatSwapGen, setHatSwapGen] = useState(0)
+  const [hatSwapFrom, setHatSwapFrom] = useState('none')
+  const [hatSwapTo, setHatSwapTo] = useState('none')
+  const [hatSwapFromColor, setHatSwapFromColor] = useState('red')
+  const [hatSwapToColor, setHatSwapToColor] = useState('red')
+  const [settledHat, setSettledHat] = useState(hatKey)
+  const [settledHatColor, setSettledHatColor] = useState(hatColorKey)
+  const colorReadyRef = useRef(false)
+  const hatReadyRef = useRef(false)
+  const hatColorReadyRef = useRef(false)
+  const visualHatRef = useRef(hatKey)
+  const visualHatColorRef = useRef(hatColorKey)
+
+  const handleHatSwapComplete = useCallback((hat, color) => {
+    visualHatRef.current = hat
+    visualHatColorRef.current = color
+    setSettledHat(hat)
+    setSettledHatColor(color)
+  }, [])
+
+  useEffect(() => {
+    if (isOpen) {
+      setDraftColor(colorKey)
+      setDraftHat(hatKey)
+      setDraftHatColor(hatColorKey)
+      setSettledHat(hatKey)
+      setSettledHatColor(hatColorKey)
+      colorReadyRef.current = false
+      hatReadyRef.current = false
+      hatColorReadyRef.current = false
+      visualHatRef.current = hatKey
+      visualHatColorRef.current = hatColorKey
+      setShakeGen(0)
+      setMouthReactGen(0)
+      setHatSwapGen(0)
+      setHatSwapFrom(hatKey)
+      setHatSwapTo(hatKey)
+      setHatSwapToColor(hatColorKey)
+    }
+  }, [isOpen, colorKey, hatKey, hatColorKey])
+
+  useEffect(() => {
+    if (!isOpen) return
+    if (!colorReadyRef.current) {
+      colorReadyRef.current = true
+      return
+    }
+    setShakeGen(g => g + 1)
+  }, [draftColor, isOpen])
+
+  useEffect(() => {
+    if (!isOpen) return
+    if (!hatReadyRef.current) {
+      hatReadyRef.current = true
+      return
+    }
+    if (visualHatRef.current === draftHat) return
+    setHatSwapFrom(visualHatRef.current)
+    setHatSwapTo(draftHat)
+    setHatSwapFromColor(visualHatColorRef.current)
+    setHatSwapToColor(draftHatColor)
+    setHatSwapGen(g => g + 1)
+    setMouthReactGen(g => g + 1)
+  }, [draftHat, draftHatColor, isOpen])
+
+  useEffect(() => {
+    if (!isOpen) return
+    if (!hatColorReadyRef.current) {
+      hatColorReadyRef.current = true
+      return
+    }
+    visualHatColorRef.current = draftHatColor
+    setSettledHatColor(draftHatColor)
+  }, [draftHatColor, isOpen])
+
+  if (!isOpen) return null
+
+  const preview = getMonsterColors(draftColor)
+
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', zIndex: 62 }}
+      onMouseDown={onClose}
+    >
+      <div
+        className={isMobile ? 'sheet-max-viewport' : undefined}
+        style={isMobile
+          ? { background: '#FDF8EF', borderRadius: '18px 18px 0 0', padding: '20px 16px', width: '100%', minWidth: 0, boxShadow: '0 -4px 24px rgba(0,0,0,0.2)', fontFamily: "'Manrope',sans-serif", overflowX: 'visible', overflowY: 'auto' }
+          : { background: '#FDF8EF', borderRadius: 18, padding: '24px 28px', maxWidth: 440, width: '92%', minWidth: 0, boxShadow: '0 8px 40px rgba(0,0,0,0.28)', fontFamily: "'Manrope',sans-serif", overflowX: 'visible' }}
+        onMouseDown={e => e.stopPropagation()}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div>
+            <div style={{ fontSize: isMobile ? 20 : 22, fontWeight: 700, color: '#1C1C2E' }}>Style</div>
+            <div style={{ fontSize: 13, color: '#606078', marginTop: 4 }}>Pick a color and hat for your monster.</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', display: 'flex', alignItems: 'center' }}><IconClose size={16} color="#606078" /></button>
+        </div>
+
+        <div style={{
+          position: 'relative',
+          height: isMobile ? 132 : 148,
+          width: '100%',
+          background: 'linear-gradient(180deg, #223152 0%, #19243D 100%)',
+          borderRadius: 16,
+          overflow: 'hidden',
+          marginBottom: 20,
+        }}>
+          <div style={{
+            position: 'absolute',
+            left: '50%',
+            bottom: isMobile ? -40 : -64,
+            transform: `translateX(-50%) scale(${isMobile ? 0.92 : 0.96})`,
+            transformOrigin: 'center bottom',
+            pointerEvents: 'none',
+          }}>
+            <TomaAppearancePreview
+              bodyColor={preview.body}
+              accentColor={preview.accent}
+              hat={settledHat}
+              hatColorKey={draftHatColor}
+              compact={isMobile}
+              mouthReactGen={mouthReactGen}
+              shakeGen={shakeGen}
+              hatSwapGen={hatSwapGen}
+              hatSwapFrom={hatSwapFrom}
+              hatSwapTo={hatSwapTo}
+              hatSwapFromColor={hatSwapFromColor}
+              hatSwapToColor={hatSwapToColor}
+              onHatSwapComplete={handleHatSwapComplete}
+            />
+          </div>
+        </div>
+
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#606078', marginBottom: 10, letterSpacing: '0.04em' }}>BODY COLOR</div>
+        <ColorSwatchRow value={draftColor} onChange={setDraftColor} />
+
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#606078', marginBottom: 10, letterSpacing: '0.04em' }}>HAT</div>
+        <HatScrollRow bleed={isMobile ? 16 : 28}>
+          {MONSTER_HATS.map(h => {
+            const sel = draftHat === h.key
+            return (
+              <button
+                key={h.key}
+                onClick={() => setDraftHat(h.key)}
+                title={h.label}
+                aria-label={h.label}
+                style={{
+                  width: 76, minWidth: 76, padding: '8px 6px',
+                  background: sel ? '#e8eef9' : '#fff',
+                  border: `2px solid ${sel ? '#254CA4' : '#D0D0DC'}`,
+                  borderRadius: 12, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  transition: 'background .12s, border-color .12s, box-shadow .12s',
+                  boxShadow: sel ? '0 3px 12px rgba(37,76,164,0.16)' : '0 1px 4px rgba(0,0,0,0.06)',
+                }}
+              >
+                <div style={{ width: '100%', height: 56, pointerEvents: 'none', overflow: 'hidden' }}>
+                  <HatOnlyPreview hat={h.key} hatColorKey={sel ? draftHatColor : 'red'} />
+                </div>
+              </button>
+            )
+          })}
+        </HatScrollRow>
+
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#606078', marginBottom: 10, letterSpacing: '0.04em' }}>HAT COLOR</div>
+        <ColorSwatchRow
+          value={draftHatColor}
+          onChange={setDraftHatColor}
+          disabled={draftHat === 'none'}
+        />
+
+        <button
+          onClick={() => { onSave(draftColor, draftHat, draftHatColor); onClose() }}
+          style={{
+            width: '100%', padding: '12px 0',
+            background: '#254CA4', color: '#FDF8EF',
+            border: 'none', borderRadius: 10, cursor: 'pointer',
+            fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: 15,
+          }}
+        >Save look</button>
+      </div>
+    </div>
+  )
+}
+
+// ─── ShelfListModal — shelf manager (edit / delete / add / reorder) ──────────
+// Mobile: bottom sheet. Desktop: centered modal like the other panels.
+
+function ShelfListModal({ shelfConfigs, getColors, shelfName, username, onEditPlate, onEditShelf, onDeleteShelf, onAddShelf, onReorder, onClose, isMobile = false }) {
   const canDelete = shelfConfigs.length > 2
-  const ROW_H = 62  // row height + gap; used to translate rows during drag and to compute drop index
+  const CARD_H = 52
+  const CARD_GAP = 10
+  const ROW_H = CARD_H + CARD_GAP  // used to translate rows during drag and to compute drop index
   const listRef = useRef(null)
   const rowRefs = useRef([])
   // Drag state — refs are the source of truth (event handlers close over them),
@@ -614,41 +1197,64 @@ function ShelfListModal({ shelfConfigs, getColors, shelfName, username, onEditPl
   const dragFromRef = useRef(-1)
   const dragOverRef = useRef(-1)
   const [dragFrom, setDragFrom] = useState(-1)
-  const [dragOver, setDragOver] = useState(-1)
-  // pointerOffset = how far (px) the finger has moved from the row's original position;
-  // drives the dragged row's translateY so it sticks to the finger.
-  const [pointerOffset, setPointerOffset] = useState(0)
+  const isDragging = dragFrom !== -1
+
+  function clearRowTransforms() {
+    rowRefs.current.forEach(el => {
+      if (!el) return
+      el.style.transform = ''
+      el.style.transition = ''
+      el.style.willChange = ''
+    })
+  }
+
+  // Imperative transforms keep drag at pointer speed — React state on every move was laggy.
+  function applyRowTransforms(from, over, draggedDy) {
+    rowRefs.current.forEach((el, idx) => {
+      if (!el) return
+      if (idx === from) {
+        el.style.transform = `translate3d(0, ${draggedDy}px, 0)`
+        el.style.transition = 'none'
+        el.style.willChange = 'transform'
+        return
+      }
+      let ty = 0
+      if (from < idx && over >= idx) ty = -ROW_H
+      else if (from > idx && over <= idx) ty = ROW_H
+      el.style.transform = ty ? `translate3d(0, ${ty}px, 0)` : ''
+      el.style.transition = 'transform 0.11s cubic-bezier(0.22, 1, 0.36, 1)'
+      el.style.willChange = ty ? 'transform' : ''
+    })
+  }
+
+  useEffect(() => () => clearRowTransforms(), [])
 
   function startDrag(idx, e) {
     dragFromRef.current = idx
     dragOverRef.current = idx
-    setDragFrom(idx); setDragOver(idx); setPointerOffset(0)
+    setDragFrom(idx)
     const startY = e.clientY
-    const list = listRef.current
-    const listRect = list.getBoundingClientRect()
-    const rowTopWithinList = idx * ROW_H  // where the row's origin sits inside the list
+    const rowTopWithinList = rowRefs.current[idx]?.offsetTop ?? idx * ROW_H
     const listInnerH = shelfConfigs.length * ROW_H
+    applyRowTransforms(idx, idx, 0)
     function onMove(ev) {
       const dy = ev.clientY - startY
-      // clamp the offset so the dragged row can't leave the list bounds
       const minDy = -rowTopWithinList
       const maxDy = (listInnerH - ROW_H) - rowTopWithinList
-      setPointerOffset(Math.max(minDy, Math.min(maxDy, dy)))
-      // Drop index: use the row's current visual centre to pick the slot
-      const visualCentre = rowTopWithinList + dy + ROW_H / 2
+      const clamped = Math.max(minDy, Math.min(maxDy, dy))
+      const visualCentre = rowTopWithinList + clamped + ROW_H / 2
       const target = Math.max(0, Math.min(shelfConfigs.length - 1, Math.floor(visualCentre / ROW_H)))
-      if (target !== dragOverRef.current) {
-        dragOverRef.current = target
-        setDragOver(target)
-      }
+      dragOverRef.current = target
+      applyRowTransforms(idx, target, clamped)
       ev.preventDefault()
     }
     function onUp() {
       const from = dragFromRef.current
       const to = dragOverRef.current !== -1 ? dragOverRef.current : from
+      clearRowTransforms()
       dragFromRef.current = -1
       dragOverRef.current = -1
-      setDragFrom(-1); setDragOver(-1); setPointerOffset(0)
+      setDragFrom(-1)
       document.removeEventListener('pointermove', onMove)
       document.removeEventListener('pointerup', onUp)
       document.removeEventListener('pointercancel', onUp)
@@ -661,17 +1267,37 @@ function ShelfListModal({ shelfConfigs, getColors, shelfName, username, onEditPl
 
   return (
     <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 62 }}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 62,
+        background: isMobile ? 'rgba(0,0,0,0.45)' : 'rgba(25,36,61,0.6)',
+        display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center',
+        padding: isMobile ? 0 : 24,
+      }}
       onMouseDown={onClose}
     >
       <div
-        className="sheet-max-viewport"
-        style={{ background: '#FDF8EF', borderRadius: '18px 18px 0 0', padding: '20px 16px', width: '100%', display: 'flex', flexDirection: 'column', boxShadow: '0 -4px 24px rgba(0,0,0,0.2)', fontFamily: "'Manrope',sans-serif", overflowY: 'auto' }}
+        className={isMobile ? 'sheet-max-viewport' : undefined}
+        style={isMobile
+          ? { background: '#FDF8EF', borderRadius: '18px 18px 0 0', padding: '20px 16px', width: '100%', display: 'flex', flexDirection: 'column', boxShadow: '0 -4px 24px rgba(0,0,0,0.2)', fontFamily: "'Manrope',sans-serif", overflowY: isDragging ? 'visible' : 'auto' }
+          : {
+              background: '#FDF8EF', borderRadius: 20, padding: '28px 32px 24px',
+              width: 'min(520px, 92vw)', maxHeight: 'min(84vh, 720px)',
+              display: 'flex', flexDirection: 'column',
+              boxShadow: '0 16px 48px rgba(0,0,0,0.3)', fontFamily: "'Manrope',sans-serif",
+              overflow: isDragging ? 'visible' : 'hidden',
+            }}
         onMouseDown={e => e.stopPropagation()}
       >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          <div style={{ fontSize: 20, fontWeight: 700, color: '#1C1C2E' }}>Shelves</div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', display: 'flex', alignItems: 'center' }}><IconClose size={16} color="#606078" /></button>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: isMobile ? 12 : 18, flexShrink: 0 }}>
+          <div>
+            <div style={{ fontSize: isMobile ? 20 : 24, fontWeight: 700, color: '#1C1C2E', lineHeight: 1.1 }}>Edit bookcase</div>
+            {!isMobile && (
+              <div style={{ fontSize: 14, color: '#666680', marginTop: 6 }}>
+                Rename shelves, reorder rows, and update your collection label.
+              </div>
+            )}
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', display: 'flex', alignItems: 'center', flexShrink: 0 }}><IconClose size={16} color="#606078" /></button>
         </div>
 
         {/* Shelf name + username — tap to open the plate edit modal */}
@@ -679,18 +1305,22 @@ function ShelfListModal({ shelfConfigs, getColors, shelfName, username, onEditPl
           onClick={onEditPlate}
           style={{
             display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left',
-            background: '#F2EFE8', border: '2px solid #E4E4EC', borderRadius: 10,
-            padding: '10px 14px', cursor: 'pointer', fontFamily: "'Manrope',sans-serif",
-            marginBottom: 18, width: '100%',
+            background: isMobile ? '#F2EFE8' : 'white',
+            border: `2px solid ${isMobile ? '#E4E4EC' : '#D0D0DC'}`, borderRadius: 12,
+            padding: isMobile ? '10px 14px' : '14px 16px', cursor: 'pointer', fontFamily: "'Manrope',sans-serif",
+            marginBottom: isMobile ? 18 : 20, width: '100%', flexShrink: 0,
+            transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
           }}
+          onMouseEnter={e => { if (!isMobile) { e.currentTarget.style.borderColor = '#254CA4'; e.currentTarget.style.boxShadow = '0 4px 14px rgba(37,76,164,0.12)' } }}
+          onMouseLeave={e => { if (!isMobile) { e.currentTarget.style.borderColor = '#D0D0DC'; e.currentTarget.style.boxShadow = 'none' } }}
         >
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: '#9898B0', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 3 }}>Collection</div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: '#1C1C2E', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <div style={{ fontSize: isMobile ? 15 : 17, fontWeight: 700, color: '#1C1C2E', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {shelfName || 'My Shelf'}
             </div>
             {username && (
-              <div style={{ fontSize: 12, color: '#606078', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div style={{ fontSize: 12, color: '#606078', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 made by {username}
               </div>
             )}
@@ -698,48 +1328,54 @@ function ShelfListModal({ shelfConfigs, getColors, shelfName, username, onEditPl
           <IconPencil size={15} color="#9898B0" />
         </button>
 
-        <div style={{ fontSize: 13, color: '#606078', marginBottom: 10 }}>Tap a shelf to rename · drag the handle to reorder</div>
+        <div style={{ fontSize: 13, color: '#606078', marginBottom: 10, flexShrink: 0 }}>
+          {isMobile ? 'Tap a shelf to rename · drag the handle to reorder' : 'Click a shelf to rename · drag the handle to reorder'}
+        </div>
 
-        <div ref={listRef} style={{ position: 'relative', display: 'flex', flexDirection: 'column' }}>
+        <div
+          ref={listRef}
+          style={{
+            position: 'relative', display: 'flex', flexDirection: 'column',
+            flex: 1, minHeight: 0,
+            overflow: isDragging ? 'visible' : undefined,
+            overflowY: isDragging ? 'visible' : (isMobile ? 'visible' : 'auto'),
+            overflowX: 'visible',
+            // Horizontal bleed room so drag shadows/borders aren't clipped by the scroller.
+            margin: '0 -10px', padding: '4px 10px',
+          }}
+        >
           {shelfConfigs.map((cfg, idx) => {
             const colors = getColors(cfg.colorKey)
             const isBeingDragged = dragFrom === idx
-            // Dragged row follows the pointer via pointerOffset. Other rows animate into
-            // the slot the dragged row is currently occupying, revealing the drop location.
-            let translate = 0
-            if (isBeingDragged) {
-              translate = pointerOffset
-            } else if (dragFrom !== -1) {
-              if (dragFrom < idx && dragOver >= idx) translate = -ROW_H     // rows above the target close up
-              else if (dragFrom > idx && dragOver <= idx) translate = ROW_H // rows below the target push down
-            }
             return (
               <div
                 key={cfg.id}
                 ref={el => { rowRefs.current[idx] = el }}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  height: 46, marginBottom: 8,
-                  transform: `translateY(${translate}px)${isBeingDragged ? ' scale(1.02)' : ''}`,
-                  // Dragged row updates every pointermove (no transition), others glide.
-                  transition: isBeingDragged ? 'none' : 'transform .2s cubic-bezier(0.22,1,0.36,1)',
-                  opacity: isBeingDragged ? 0.92 : 1,
-                  boxShadow: isBeingDragged ? '0 10px 24px rgba(0,0,0,0.2)' : 'none',
-                  borderRadius: isBeingDragged ? 10 : 0,
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  height: CARD_H, marginBottom: CARD_GAP, padding: '0 8px 0 2px',
+                  boxSizing: 'border-box',
+                  background: '#FFFFFF',
+                  border: `2px solid ${isBeingDragged ? '#254CA4' : '#D0D0DC'}`,
+                  borderRadius: 12,
+                  transition: 'box-shadow .12s ease, border-color .12s ease',
+                  boxShadow: isBeingDragged
+                    ? '0 14px 32px rgba(0,0,0,0.18), 0 0 0 1px rgba(37,76,164,0.08)'
+                    : '0 1px 3px rgba(0,0,0,0.05)',
                   zIndex: isBeingDragged ? 5 : 1,
-                  // Prevent the dragged row from being covered by later siblings
                   position: 'relative',
                 }}
               >
-                {/* Drag handle — press-and-drag anywhere on it to reorder */}
+                {/* Drag handle — press-and-drag to reorder the whole card */}
                 <button
                   onPointerDown={e => { e.preventDefault(); startDrag(idx, e) }}
                   aria-label="Drag to reorder"
                   style={{
-                    width: 30, height: 46, borderRadius: 8, border: 'none',
-                    background: 'transparent', color: '#9898B0',
+                    width: 28, height: 40, borderRadius: 8, border: 'none',
+                    background: isBeingDragged ? 'rgba(37,76,164,0.08)' : 'transparent',
+                    color: isBeingDragged ? '#254CA4' : '#9898B0',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    cursor: 'grab', touchAction: 'none', flexShrink: 0,
+                    cursor: isBeingDragged ? 'grabbing' : 'grab', touchAction: 'none', flexShrink: 0,
                   }}
                 >
                   <svg width="16" height="20" viewBox="0 0 16 20" fill="currentColor">
@@ -751,26 +1387,28 @@ function ShelfListModal({ shelfConfigs, getColors, shelfName, username, onEditPl
                 <button
                   onClick={() => dragFrom === -1 && onEditShelf(idx)}
                   style={{
-                    flex: 1, display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left',
-                    background: 'white', border: '2px solid #D0D0DC', borderRadius: 10,
-                    padding: '12px 14px', cursor: 'pointer', fontFamily: "'Manrope',sans-serif",
-                    height: 46, boxSizing: 'border-box',
+                    flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left',
+                    background: 'none', border: 'none', borderRadius: 8,
+                    padding: '8px 10px', cursor: 'pointer', fontFamily: "'Manrope',sans-serif",
+                    height: 40,
                   }}
                 >
-                  <span style={{ width: 18, height: 18, borderRadius: 5, background: colors.tabBg, flexShrink: 0, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.12)' }} />
+                  <span style={{ width: 16, height: 16, borderRadius: 4, background: colors.tabBg, flexShrink: 0, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.12)' }} />
                   <span style={{ flex: 1, fontWeight: 700, fontSize: 15, color: '#1C1C2E', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cfg.label}</span>
                   <IconPencil size={15} color="#9898B0" />
                 </button>
                 <button
-                  onClick={() => canDelete && onDeleteShelf(idx)}
+                  onClick={() => canDelete && dragFrom === -1 && onDeleteShelf(idx)}
+                  aria-label="Delete shelf"
                   style={{
-                    width: 46, height: 46, borderRadius: 10, border: `2px solid ${canDelete ? '#e3b6b0' : '#E4E4EC'}`,
-                    background: 'white', cursor: canDelete ? 'pointer' : 'default',
+                    width: 36, height: 36, borderRadius: 8, border: 'none',
+                    background: canDelete ? 'rgba(192,57,43,0.08)' : 'rgba(0,0,0,0.04)',
+                    cursor: canDelete ? 'pointer' : 'default',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     opacity: canDelete ? 1 : 0.45, flexShrink: 0,
                   }}
                 >
-                  <IconTrash size={18} color={canDelete ? '#c0392b' : '#9898B0'} />
+                  <IconTrash size={17} color={canDelete ? '#c0392b' : '#9898B0'} />
                 </button>
               </div>
             )
@@ -780,11 +1418,17 @@ function ShelfListModal({ shelfConfigs, getColors, shelfName, username, onEditPl
         <button
           onClick={onAddShelf}
           style={{
-            marginTop: 6, width: '100%', padding: '12px 0',
-            background: 'none', border: '2px dashed #D0D0DC', borderRadius: 10,
-            color: '#606078', fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: 14,
-            cursor: 'pointer',
+            marginTop: isMobile ? 6 : 14, width: '100%', padding: isMobile ? '12px 0' : '13px 0',
+            background: isMobile ? 'none' : 'transparent',
+            border: isMobile ? '2px dashed #D0D0DC' : '2px solid #254CA4',
+            borderRadius: 10,
+            color: isMobile ? '#606078' : '#254CA4',
+            fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: 14,
+            cursor: 'pointer', flexShrink: 0,
+            transition: 'background 0.15s ease, color 0.15s ease',
           }}
+          onMouseEnter={e => { if (!isMobile) { e.currentTarget.style.background = '#254CA4'; e.currentTarget.style.color = '#FDF8EF' } }}
+          onMouseLeave={e => { if (!isMobile) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#254CA4' } }}
         >+ Add Shelf</button>
       </div>
     </div>
@@ -863,13 +1507,13 @@ function ShelfEditModal({ cfg, onSave, onDelete, onClose, canDelete = true, show
         />
 
         <div style={{ fontSize: 13, fontWeight: 700, color: '#606078', marginBottom: 12, letterSpacing: '0.04em' }}>SHELF COLOR</div>
-        <div style={{ display: 'flex', gap: 10, marginBottom: 28, flexWrap: 'wrap' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 8, marginBottom: 28 }}>
           {ROYGBIV.map(c => (
             <div
               key={c.key}
               onClick={() => setColorKey(c.key)}
               style={{
-                width: 34, height: 34, borderRadius: '50%', background: c.tabBg,
+                width: '100%', aspectRatio: '1', borderRadius: '50%', background: c.tabBg,
                 border: colorKey === c.key ? `3px solid ${c.tabInk}` : '3px solid transparent',
                 cursor: 'pointer', boxSizing: 'border-box',
                 boxShadow: colorKey === c.key ? `0 0 0 2px ${c.tabBg}` : 'none',
@@ -908,4 +1552,4 @@ function ShelfEditModal({ cfg, onSave, onDelete, onClose, canDelete = true, show
 }
 
 
-export { SidePanelButtons, BookPreviewModal, BookAddPanel, DecorAddPanel, ShelfListModal, ShelfPlateEditModal, ShelfEditModal }
+export { SidePanelButtons, BookPreviewModal, BookAddPanel, DecorAddPanel, MonsterCustomizeModal, ShelfListModal, ShelfPlateEditModal, ShelfEditModal }
