@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { DbError } from '../db.js'
 
 // ─── Onboarding overlay ────────────────────────────────────────────────────────
 
@@ -6,6 +7,7 @@ function OnboardingOverlay({ onSubmit }) {
   const [name, setName] = useState('')
   const [shelfName, setShelfName] = useState('')
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
   const canSubmit = name.trim() && shelfName.trim() && !loading
 
   return (
@@ -27,12 +29,28 @@ function OnboardingOverlay({ onSubmit }) {
             style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: '1.5px solid #C4C4D4', fontSize: 16, fontFamily: "'Manrope', sans-serif", color: '#1C1C2E', background: '#FDF8EF', outline: 'none' }} />
         </div>
 
+        {error && (
+          <div style={{ fontSize: 13, color: '#c0392b', marginBottom: 14, lineHeight: 1.4 }}>
+            {error}
+          </div>
+        )}
+
         <button
           disabled={!canSubmit}
           onClick={async () => {
             if (!canSubmit) return
             setLoading(true)
-            await onSubmit(name.trim(), shelfName.trim())
+            setError('')
+            try {
+              await onSubmit(name.trim(), shelfName.trim())
+            } catch (err) {
+              setError(
+                err instanceof DbError
+                  ? err.message
+                  : 'Could not save your shelf. Check your connection and try again.'
+              )
+              setLoading(false)
+            }
           }}
           style={{ width: '100%', padding: '12px 0', background: canSubmit ? '#254CA4' : '#C4C4D4', color: '#FDF8EF', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: canSubmit ? 'pointer' : 'default', fontFamily: "'Manrope', sans-serif", transition: 'background 0.15s' }}
         >

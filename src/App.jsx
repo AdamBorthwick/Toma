@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
-import { getMyIp, getOrCreateUser, loadShelfByUserId, loadShelfByShareId, loadReviews, persistShelf, getShareId, setUsername as saveUsername, getUsername, getMonsterLook, setMonsterLook, loadInventory, addInventoryBook, addInventoryStack, addInventoryDecor, removeInventoryItem, DbError } from './db.js'
-import { SLOT_W, NUM_SLOTS, SHELF_H, MOBILE_HEADER_PAD, BOOKCASE_LEFT, BOOKCASE_WIDTH, MOBILE_ZOOMED_IN_MONSTER_BIAS, isRotatableDragType } from './lib/constants.js'
+import { resolveUserId, loadShelfByUserId, loadShelfByShareId, loadReviews, persistShelf, getShareId, setUsername as saveUsername, getUsername, getMonsterLook, setMonsterLook, loadInventory, addInventoryBook, addInventoryStack, addInventoryDecor, removeInventoryItem, DbError } from './db.js'
+import { SLOT_W, NUM_SLOTS, SHELF_H, BOOKCASE_LEFT, BOOKCASE_WIDTH, MOBILE_ZOOMED_IN_MONSTER_BIAS, isRotatableDragType } from './lib/constants.js'
 import { mobileShelfScrollBounds, computeMobileScale, setGhostPos, slotsOverlap, findFreeZone, computeArm, computeFingerPaths, titleT } from './lib/geometry.js'
 import { fetchDefaultShelfData } from './lib/openLibrary.js'
 import { SHELVES, getShelfColors, reconstructShelf } from './data/shelves.jsx'
@@ -256,20 +256,36 @@ export default function App() {
     return { x, y }
   }
 
+  // Aim the hand at the clicked book's visual center (more reliable than raw click coords).
+  function clickToStageAim(clickEvent) {
+    if (!clickEvent) return null
+    const el = clickEvent.currentTarget
+    if (el?.getBoundingClientRect) {
+      const r = el.getBoundingClientRect()
+      return clientToStage(r.left + r.width / 2, r.top + r.height / 2, true)
+    }
+    const { clientX, clientY } = clickEvent
+    if (clientX == null || clientY == null) return null
+    return clientToStage(clientX, clientY, true)
+  }
+
   function trackArmTarget(pos) {
     const from = displayTargetRef.current
     const dy = from ? Math.abs(pos.y - from.y) : 0
+    // While the page is scrolling, glide the arm/head instead of chasing every frame.
+    if (pageScrollingRef.current) {
+      lerpArmTarget(pos, mobileArmSmoothTau() + 0.2)
+      return
+    }
     // Large jumps (tap on a distant shelf) glide; continuous finger-follow stays snappy.
     const tau = dy > 400 ? 0.5 : dy > 200 ? 0.4 : dy > 80 ? 0.24 : mobileArmSmoothTau()
     lerpArmTarget(pos, tau)
   }
 
-  // Desktop vertical scroll: glide arm/head to the cursor's new stage-local aim point.
+  // Desktop vertical scroll: shelf rows move under a fixed cursor, so snap the arm each
+  // frame — lerping here left the hand pointing at the previous row when you clicked.
   function panMonsterOnDesktopScroll(pos) {
-    const from = displayTargetRef.current
-    const dy = from ? Math.abs(pos.y - from.y) : 0
-    const tau = dy > 160 ? 0.26 : 0.17
-    lerpArmTarget(pos, tau)
+    snapArmTarget(pos)
   }
 
   const clientToStageRef = useRef(clientToStage)
@@ -311,7 +327,7 @@ export default function App() {
   // bookshelf sits vertically centered. Shift is scale-dependent, reaching 0 once the
   // bookshelf outgrows the screen, so it animates naturally with zoom transitions.
   function mobileViewPad() {
-    return (isMobileRef.current && isViewOnly) ? MOBILE_HEADER_PAD : 0
+    return 0
   }
 
   function bookcaseShiftAt(sc) {
@@ -514,7 +530,7 @@ export default function App() {
   const retractModeRef = useRef(0)
   const lastMousePosRef = useRef(null)    // last known cursor in stage-local coords
   const viewportMouseRef = useRef(null)   // last known cursor in raw viewport coords
-  const desktopScrollingRef = useRef(false) // true while desktop vertical scroll is active
+  const pageScrollingRef = useRef(false) // true while the page scrollport is moving
   const lastDesktopScrollTopRef = useRef(0)
   const bookcaseBottomRef = useRef(0)     // stage-coord bookcase floor, mirrors render-derived bookcaseBottom
   const armGoalRef = useRef(null)         // unified lerp goal for arm tracking
@@ -529,7 +545,6 @@ export default function App() {
   const headLerpLastTsRef = useRef(null)
   const headLerpTauRef = useRef(0.2)
   const [headDisplay, setHeadDisplay] = useState({ left: 630, top: 200, rotate: 0 })
-  const [hoveredShelfIdx, setHoveredShelfIdx] = useState(null)
 
   // Glide the arm toward a goal instead of snapping. Used for scroll, mobile touch
   // (browse + edit), and desktop mouse stays direct/snappy.
@@ -576,6 +591,19 @@ export default function App() {
       armLerpRafRef.current = requestAnimationFrame(step)
     }
     armLerpRafRef.current = requestAnimationFrame(step)
+  }
+
+  // Snap the arm to a goal immediately — used when picking up a book so the hand
+  // doesn't lerp from a stale hover/scroll position.
+  function snapArmTarget(goal) {
+    if (armLerpRafRef.current) {
+      cancelAnimationFrame(armLerpRafRef.current)
+      armLerpRafRef.current = null
+      armLerpLastTsRef.current = null
+    }
+    armGoalRef.current = goal
+    displayTargetRef.current = { ...goal }
+    setDisplayTarget({ ...goal })
   }
 
   function ensureHeadLerp() {
@@ -714,7 +742,31 @@ export default function App() {
     const el = scrollRef.current
     if (!el) return
     let clampRaf = null
-    function clampX() {
+    let settleAnimRaf = null
+    function easeScrollLeftTo(target) {
+      if (settleAnimRaf) cancelAnimationFrame(settleAnimRaf)
+      const start = el.scrollLeft
+      const diff = target - start
+      if (Math.abs(diff) < 0.5) {
+        el.scrollLeft = target
+        return
+      }
+      const duration = 240
+      let t0 = null
+      function step(ts) {
+        if (!t0) t0 = ts
+        const p = Math.min(1, (ts - t0) / duration)
+        const eased = p * p * (3 - 2 * p)
+        el.scrollLeft = start + diff * eased
+        if (p < 1) settleAnimRaf = requestAnimationFrame(step)
+        else {
+          el.scrollLeft = target
+          settleAnimRaf = null
+        }
+      }
+      settleAnimRaf = requestAnimationFrame(step)
+    }
+    function softClampX() {
       if (scaleAnimatingRef.current) return
       if (!isMobile) {
         if (el.scrollLeft !== 0) el.scrollLeft = 0
@@ -726,8 +778,24 @@ export default function App() {
       }
       const { min, max } = mobileShelfScrollBounds(el, scaleRef.current)
       const x = el.scrollLeft
-      if (x < min) el.scrollLeft = min
-      else if (x > max) el.scrollLeft = max
+      if (x < min) el.scrollLeft = x + (min - x) * 0.4
+      else if (x > max) el.scrollLeft = x + (max - x) * 0.4
+    }
+    function settleClampX() {
+      if (scaleAnimatingRef.current) return
+      if (!isMobile) {
+        if (el.scrollLeft !== 0) el.scrollLeft = 0
+        return
+      }
+      if (!zoomedInRef.current) {
+        if (el.scrollLeft !== 0) el.scrollLeft = 0
+        return
+      }
+      const { min, max } = mobileShelfScrollBounds(el, scaleRef.current)
+      const x = el.scrollLeft
+      if (x < min - 0.5) easeScrollLeftTo(min)
+      else if (x > max + 0.5) easeScrollLeftTo(max)
+      else if (x < min || x > max) el.scrollLeft = Math.max(min, Math.min(max, x))
     }
     function onScroll() {
       if (scaleAnimatingRef.current) return
@@ -739,24 +807,24 @@ export default function App() {
         if (el.scrollLeft !== 0) el.scrollLeft = 0
         return
       }
-      // Defer clamp to rAF so we don't fight iOS momentum scroll every event tick.
+      // Gentle pull during momentum; hard settle waits for scrollend/touchend.
       if (!clampRaf) {
         clampRaf = requestAnimationFrame(() => {
           clampRaf = null
-          clampX()
+          softClampX()
         })
       }
     }
     function settleX() {
       if (clampRaf) { cancelAnimationFrame(clampRaf); clampRaf = null }
-      clampX()
+      settleClampX()
     }
     function onWheel(e) {
       if (isMobile || e.deltaX === 0) return
       e.preventDefault()
       if (el.scrollLeft !== 0) el.scrollLeft = 0
     }
-    onScroll()
+    softClampX()
     el.addEventListener('scroll', onScroll, { passive: true })
     el.addEventListener('touchend', settleX, { passive: true })
     el.addEventListener('scrollend', settleX, { passive: true })
@@ -767,6 +835,7 @@ export default function App() {
       el.removeEventListener('scrollend', settleX)
       el.removeEventListener('wheel', onWheel)
       if (clampRaf) cancelAnimationFrame(clampRaf)
+      if (settleAnimRaf) cancelAnimationFrame(settleAnimRaf)
     }
   }, [isMobile, bookcaseRevealed, zoomedIn])
 
@@ -779,12 +848,12 @@ export default function App() {
     let panRaf = null
     let scrollIdleTimer = null
 
-    function markDesktopScrolling() {
-      desktopScrollingRef.current = true
+    function markPageScrolling() {
+      pageScrollingRef.current = true
       clearTimeout(scrollIdleTimer)
       scrollIdleTimer = setTimeout(() => {
-        desktopScrollingRef.current = false
-      }, 150)
+        pageScrollingRef.current = false
+      }, 220)
     }
 
     function panMonsterToScrollAim() {
@@ -802,7 +871,7 @@ export default function App() {
       const top = el.scrollTop
       if (top === lastDesktopScrollTopRef.current) return
       lastDesktopScrollTopRef.current = top
-      markDesktopScrolling()
+      markPageScrolling()
       if (panRaf) return
       panRaf = requestAnimationFrame(() => {
         panRaf = null
@@ -811,7 +880,7 @@ export default function App() {
     }
 
     function onDesktopWheel() {
-      markDesktopScrolling()
+      markPageScrolling()
     }
 
     lastDesktopScrollTopRef.current = el.scrollTop
@@ -831,7 +900,16 @@ export default function App() {
     const el = scrollRef.current
     if (!el) return
     let scrollRaf = null
+    let scrollIdleTimer = null
+    function markPageScrolling() {
+      pageScrollingRef.current = true
+      clearTimeout(scrollIdleTimer)
+      scrollIdleTimer = setTimeout(() => {
+        pageScrollingRef.current = false
+      }, 220)
+    }
     function onMobileScroll() {
+      markPageScrolling()
       if (scrollRaf) return
       scrollRaf = requestAnimationFrame(() => {
         scrollRaf = null
@@ -849,6 +927,7 @@ export default function App() {
     return () => {
       el.removeEventListener('scroll', onMobileScroll)
       if (scrollRaf) cancelAnimationFrame(scrollRaf)
+      clearTimeout(scrollIdleTimer)
     }
   }, [isMobile, selected, editDragging])
 
@@ -908,8 +987,7 @@ export default function App() {
     let cancelled = false
 
     async function bootstrapOwner() {
-      const ip = await getMyIp()
-      const uid = await getOrCreateUser(ip)
+      const uid = await resolveUserId()
       const shelf = await loadShelfByUserId(uid)
       const isNewUser = !shelf || shelf.rows.length === 0
       if (cancelled) return
@@ -960,8 +1038,7 @@ export default function App() {
       setIsDbLoaded(true)
       // background: check if viewer has their own shelf + store their userId
       try {
-        const ip = await getMyIp()
-        const uid = await getOrCreateUser(ip)
+        const uid = await resolveUserId()
         if (cancelled) return
         setViewerUserId(uid)
         const sid = await getShareId(uid)
@@ -1289,12 +1366,9 @@ export default function App() {
     function onWindowMove(e, touch = false) {
       const prevVm = viewportMouseRef.current
       const sameViewport = prevVm && prevVm.x === e.clientX && prevVm.y === e.clientY
-      // While desktop vertical scroll is active, the dedicated scroll pan handler owns
-      // arm updates; mousemove stays direct/snappy once scrolling stops.
-      if (!touch && !isMobileRef.current) {
-        if (desktopScrollingRef.current) return
-        if (sameViewport) return
-      }
+      // While the page is scrolling, dedicated scroll handlers own arm updates.
+      if (pageScrollingRef.current) return
+      if (!touch && !isMobileRef.current && sameViewport) return
       const pos = clientToStage(e.clientX, e.clientY, touch && isMobileRef.current)
       if (!pos) return
       viewportMouseRef.current = { x: e.clientX, y: e.clientY }
@@ -1367,7 +1441,7 @@ export default function App() {
   }, [selected])
 
   const handleClickRef = useRef(null)
-  const handleClick = useCallback((b) => {
+  const handleClick = useCallback((b, clickEvent) => {
     if (grabPhaseRef.current) return
 
     // Start prefetching immediately — gives the full grab+overlay animation (~1.4s) as head start
@@ -1386,7 +1460,19 @@ export default function App() {
         .catch(() => null)
     }
 
-    // Freeze arm at current position
+    const clientX = clickEvent?.clientX
+    const clientY = clickEvent?.clientY
+    if (clientX != null && clientY != null) {
+      viewportMouseRef.current = { x: clientX, y: clientY }
+    }
+    const pos = clickToStageAim(clickEvent)
+    if (pos) {
+      snapArmTarget(pos)
+      lastMousePosRef.current = pos
+    } else if (lastMousePosRef.current) {
+      snapArmTarget(lastMousePosRef.current)
+    }
+
     grabPhaseRef.current = 'extending'
     setGrabPhase('extending')
     setGrabbedBook(b)
@@ -1532,22 +1618,6 @@ export default function App() {
     setEditDragStagePos(null)
   }
 
-  // Track cursor Y globally in edit mode to show the correct shelf's edit button
-  useEffect(() => {
-    if (!isEditMode) { setHoveredShelfIdx(null); return }
-    const numShelves = shelfContents.length
-    function onGlobalMove(e) {
-      const m = stageMetrics()
-      if (!m) return
-      const stageY = (e.clientY - m.top) / m.sy - bookcaseShiftRef.current
-      // Each shelf row occupies 188px starting at y=196 (top board bottom)
-      const idx = Math.floor((stageY - 196) / 188)
-      setHoveredShelfIdx(idx >= 0 && idx < numShelves ? idx : null)
-    }
-    window.addEventListener('mousemove', onGlobalMove)
-    return () => window.removeEventListener('mousemove', onGlobalMove)
-  }, [isEditMode, shelfContents.length])
-
   // Iris tracking — move eyes toward mouse cursor
   useEffect(() => {
     const MAX = 7
@@ -1615,9 +1685,11 @@ export default function App() {
     if (rotateDelayTimer.current) { clearTimeout(rotateDelayTimer.current); rotateDelayTimer.current = null }
     rotateCooldownUntil.current = 0
     const placeArm = () => {
-      const pos = clientToStage(e.clientX, e.clientY, true)
+      const cx = viewportMouseRef.current?.x ?? e.clientX
+      const cy = viewportMouseRef.current?.y ?? e.clientY
+      const pos = clientToStage(cx, cy, true)
       if (!pos) return
-      startArmLerp(pos)
+      snapArmTarget(pos)
       setEditDragStagePos(pos)
     }
     const autoZoomed = ensureMobileDragZoom(e.clientX, e.clientY, placeArm)
@@ -1922,7 +1994,7 @@ export default function App() {
             panned = true
           }
         }
-        const topEdge = MOBILE_HEADER_PAD + EDGE
+        const topEdge = EDGE
         if (lastPoint.y < topEdge) { scr.scrollTop -= speed(topEdge - lastPoint.y); panned = true }
         else if (lastPoint.y > window.innerHeight - EDGE) { scr.scrollTop += speed(lastPoint.y - (window.innerHeight - EDGE)); panned = true }
       }
@@ -1974,14 +2046,11 @@ export default function App() {
       ...(item.books ? { books: item.books } : {}),
     }
     const placeArm = () => {
-      const pos = clientToStage(e.clientX, e.clientY, isMobileRef.current)
+      const cx = viewportMouseRef.current?.x ?? e.clientX
+      const cy = viewportMouseRef.current?.y ?? e.clientY
+      const pos = clientToStage(cx, cy, isMobileRef.current)
       if (!pos) return
-      if (isMobileRef.current) {
-        startArmLerp(pos)
-      } else {
-        displayTargetRef.current = pos
-        setDisplayTarget(pos)
-      }
+      snapArmTarget(pos)
       setEditDragStagePos(pos)
     }
     const autoZoomed = ensureMobileDragZoom(e.clientX, e.clientY, placeArm)
@@ -1994,6 +2063,7 @@ export default function App() {
     // Already carrying an item (e.g. just added from the panel) — let the drag/drop for
     // that one finish; ignore touches that land on other placed books.
     if (editDraggingRef.current) return
+    viewportMouseRef.current = { x: e.clientX, y: e.clientY }
     setGhostPos(ghostRef.current, e.clientX, e.clientY)
     // For book items defer the drag so a quick release becomes a click-to-view
     if (item.type === 'vertical-book' && item.book) {
@@ -2008,9 +2078,9 @@ export default function App() {
           _startPlacedItemDrag(ev, shelfIdx, item)
         }
       }
-      function onPendingUp() {
+      function onPendingUp(ev) {
         cleanup()
-        handleClickRef.current(item.book)
+        handleClickRef.current(item.book, ev)
       }
       function onPendingCancel() { cleanup() }
       function cleanup() {
@@ -2043,10 +2113,11 @@ export default function App() {
       return updated
     })
     const placeArm = () => {
-      const pos = clientToStage(e.clientX, e.clientY, isMobileRef.current)
+      const cx = viewportMouseRef.current?.x ?? e.clientX
+      const cy = viewportMouseRef.current?.y ?? e.clientY
+      const pos = clientToStage(cx, cy, isMobileRef.current)
       if (!pos) return
-      if (isMobileRef.current) startArmLerp(pos)
-      else { displayTargetRef.current = pos; setDisplayTarget(pos) }
+      snapArmTarget(pos)
       setEditDragStagePos(pos)
     }
     const autoZoomed = ensureMobileDragZoom(e.clientX, e.clientY, placeArm)
@@ -2061,6 +2132,7 @@ export default function App() {
   function handleStackBookPointerDown(e, shelfIdx, stackItem, bookIdx) {
     if (!isMobile) e.preventDefault()
     e.stopPropagation()
+    viewportMouseRef.current = { x: e.clientX, y: e.clientY }
     setGhostPos(ghostRef.current, e.clientX, e.clientY)
     const startX = e.clientX, startY = e.clientY
     function onPendingMove(ev) {
@@ -2070,10 +2142,10 @@ export default function App() {
         _startStackDrag(ev, shelfIdx, stackItem, bookIdx)
       }
     }
-    function onPendingUp() {
+    function onPendingUp(ev) {
       cleanup()
       const book = stackItem.books[bookIdx]
-      if (book) handleClickRef.current(book)
+      if (book) handleClickRef.current(book, ev)
     }
     function onPendingCancel() { cleanup() }
     function cleanup() {
@@ -2226,8 +2298,8 @@ export default function App() {
   const headRotate = retreating ? 0 : -5 * topBlend + 7 * (1 - topBlend)
   headGoalRef.current = { left: headLeft, top: headTop, rotate: headRotate }
   const smoothHeadFollow = headIntroTop === null && headIntroLeft === null && !retreating && !applyTopTransition
-  headLerpTauRef.current = desktopScrollingRef.current
-    ? 0.26
+  headLerpTauRef.current = pageScrollingRef.current
+    ? 0.38
     : isMobile
       ? (mobileArmSmoothTau() + 0.04)
       : 0.13
@@ -2259,8 +2331,7 @@ export default function App() {
   // the top of the screen and the cave floor reaches the bottom.
   const renderBookcaseShift = isMobile ? bookcaseShiftAt(scale) : 0
   const mobileViewportFillH = isMobile
-    ? Math.ceil((window.innerHeight - (isViewOnly ? MOBILE_HEADER_PAD : 0))
-        / Math.max(0.05, computeMobileScale(false, window.innerWidth)))
+    ? Math.ceil(window.innerHeight / Math.max(0.05, computeMobileScale(false, window.innerWidth)))
     : 0
   const stageHeight = Math.max(960, bookcaseBottom + renderBookcaseShift + 140, mobileViewportFillH)
   stageHeightRef.current = stageHeight
@@ -2388,7 +2459,7 @@ export default function App() {
 
   return (
     <>
-    <div ref={scrollRef} className="fill-viewport" style={{
+    <div ref={scrollRef} className="fill-viewport page-scroll" style={{
       overflowY: pageCanScroll ? 'auto' : 'hidden',
       overflowX: (isMobile && zoomedIn && !showTitle) ? 'auto' : 'hidden',
       overscrollBehaviorX: 'none',
@@ -2428,9 +2499,6 @@ export default function App() {
         display: 'flex',
         justifyContent: (isMobile && zoomedIn) ? 'flex-start' : 'center', alignItems: 'flex-start',
         background: '#223152',
-        // Mobile view-only keeps the fixed top banner — start the stage below it.
-        // Owners have the footer instead, so the stage can use the full height.
-        paddingTop: (isMobile && isViewOnly) ? MOBILE_HEADER_PAD : 0,
         fontFamily: "'Manrope', sans-serif",
       }}>
       <div
@@ -2503,8 +2571,6 @@ export default function App() {
             <ShelfPlate
               shelfName={shelfName}
               username={username}
-              showEditButton={isEditMode && !isViewOnly}
-              onEdit={() => setShowPlateEdit(true)}
               isMobile={isMobile}
             />
           </div>
@@ -2566,8 +2632,6 @@ export default function App() {
                     onPointerUp={() => {}}
                     onItemPointerDown={handlePlacedItemPointerDown}
                     onStackBookPointerDown={handleStackBookPointerDown}
-                    onEditClick={() => { shelfEditReturnToListRef.current = false; setEditingShelfIdx(shelfIdx) }}
-                    showEditButton={!editDragging && (isMobile || hoveredShelfIdx === shelfIdx) && !selected}
                     grabbedBookId={grabbedBookId}
                     shelfH={safeShelfH}
                     isMobile={isMobile}
@@ -2594,21 +2658,10 @@ export default function App() {
                 // On mobile each shelf row is a vertical scroll-snap target so the view
                 // settles on one shelf at a time. scrollMarginTop offsets the view-only banner.
                 return isMobile
-                  ? <div key={cfg.id} style={{ scrollSnapAlign: 'center', scrollMarginTop: isViewOnly ? MOBILE_HEADER_PAD : 0 }}>{row}</div>
+                  ? <div key={cfg.id} style={{ scrollSnapAlign: 'center' }}>{row}</div>
                   : <div key={cfg.id}>{row}</div>
               })
             })()}
-            {/* Add shelf button — edit mode only, fades out while dragging.
-                Mobile adds shelves via the footer's "Shelves" list instead. */}
-            {isEditMode && !isMobile && (
-              <div style={{ display: 'flex', justifyContent: 'center', padding: '14px 0 4px', opacity: editDragging ? 0 : 1, pointerEvents: editDragging ? 'none' : 'auto', transition: 'opacity 0.2s ease' }}>
-                <button
-                  onClick={() => setShowAddShelfModal(true)}
-                  // In-shelf scale on mobile, matching the edit chips
-                  style={{ background: '#254CA4', border: 'none', borderRadius: 12, padding: isMobile ? '10px 30px' : '10px 28px', fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: isMobile ? 18 : 15, color: '#FDF8EF', cursor: 'pointer' }}
-                >+ Add Shelf</button>
-              </div>
-            )}
             </div>{/* end scrollable shelf list */}
           </div>
 
@@ -2671,12 +2724,9 @@ export default function App() {
           </div>}{/* end bookcaseRevealed */}
 
         </div>
-      {/* header bar — outside the zoomed stage so position:fixed renders at true viewport
-          scale on every engine. Desktop: hides on scroll down / shows on scroll up.
-          Mobile owners get the central footer instead (SidePanelButtons); the header
-          only remains on mobile for the view-only banner. */}
-      {bookcaseRevealed && (!isMobile || isViewOnly) && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px 10px', zIndex: 9, pointerEvents: 'none', background: isMobile ? '#223152' : 'transparent', transform: ((headerVisible && !surfacing) || isMobile) ? 'translateY(0)' : 'translateY(-120%)', transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)' }}>
+      {/* header bar — desktop only; mobile owners use the footer, viewers use the view-only footer */}
+      {bookcaseRevealed && !isMobile && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px 10px', zIndex: 9, pointerEvents: 'none', background: 'transparent', transform: (headerVisible && !surfacing) ? 'translateY(0)' : 'translateY(-120%)', transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)' }}>
           <div style={{ pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: 10, alignSelf: isViewOnly ? 'flex-start' : 'center' }}>
             {isViewOnly && (
               <span style={{ color: '#FDF8EF', opacity: 0.7, fontSize: 12, fontFamily: "'Manrope',sans-serif", whiteSpace: 'nowrap' }}>
@@ -2688,26 +2738,24 @@ export default function App() {
                 onClick={isEditMode ? exitEditMode : enterEditMode}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 8,
-                  padding: isMobile ? '10px 18px 10px 12px' : '6px 14px 6px 8px', cursor: 'pointer',
+                  padding: '6px 14px 6px 8px', cursor: 'pointer',
                   background: 'linear-gradient(#2A2A2A, #2A2A2A) padding-box, repeating-linear-gradient(-45deg, #FFD700, #FFD700 7px, #1C1C1C 7px, #1C1C1C 14px) border-box',
                   border: '3px solid transparent',
                   borderRadius: 11,
                   color: '#ffffff',
-                  fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: isMobile ? 15 : 13,
+                  fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: 13,
                 }}
               >
-                {/* toggle track */}
                 <div style={{
-                  width: isMobile ? 44 : 36, height: isMobile ? 24 : 20, borderRadius: 12, flexShrink: 0, position: 'relative',
+                  width: 36, height: 20, borderRadius: 12, flexShrink: 0, position: 'relative',
                   background: isEditMode ? '#FFD700' : '#1A1A1A',
                   boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.7)',
                   transition: 'background 0.2s',
                 }}>
-                  {/* thumb */}
                   <div style={{
-                    position: 'absolute', top: isMobile ? 4 : 3, width: isMobile ? 16 : 14, height: isMobile ? 16 : 14, borderRadius: 8,
+                    position: 'absolute', top: 3, width: 14, height: 14, borderRadius: 8,
                     background: '#3C3C3C',
-                    left: isEditMode ? (isMobile ? 24 : 19) : 3,
+                    left: isEditMode ? 19 : 3,
                     boxShadow: '0 1px 3px rgba(0,0,0,0.6)',
                     transition: 'left 0.18s cubic-bezier(.4,0,.2,1)',
                   }}/>
@@ -2736,8 +2784,8 @@ export default function App() {
               )}
               {shareId && (
                 <button onClick={() => setShowShareModal(true)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#254CA4', color: '#FDF8EF', border: '3px solid transparent', borderRadius: 10, padding: isMobile ? '10px 18px' : '6px 14px', fontSize: isMobile ? 15 : 13, fontFamily: "'Manrope',sans-serif", fontWeight: 700, cursor: 'pointer' }}>
-                  <svg width={isMobile ? 17 : 14} height={isMobile ? 17 : 14} viewBox="0 0 14 14" fill="none">
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#254CA4', color: '#FDF8EF', border: '3px solid transparent', borderRadius: 10, padding: '6px 14px', fontSize: 13, fontFamily: "'Manrope',sans-serif", fontWeight: 700, cursor: 'pointer' }}>
+                  <svg width={14} height={14} viewBox="0 0 14 14" fill="none">
                     <circle cx="11" cy="2.5" r="1.5" stroke="#FDF8EF" strokeWidth="1.4"/>
                     <circle cx="11" cy="11.5" r="1.5" stroke="#FDF8EF" strokeWidth="1.4"/>
                     <circle cx="3" cy="7" r="1.5" stroke="#FDF8EF" strokeWidth="1.4"/>
@@ -3020,6 +3068,46 @@ export default function App() {
             />
           )}
         </>
+      )}
+
+      {/* Mobile view-only footer — creator name + link to own shelf */}
+      {isMobile && isViewOnly && bookcaseRevealed && !showTitle && (
+        <div style={{
+          position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 48,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+          padding: '12px 16px calc(12px + env(safe-area-inset-bottom, 0px))',
+          background: 'linear-gradient(to top, rgba(34,49,82,0.98) 65%, rgba(34,49,82,0.88) 85%, transparent)',
+          pointerEvents: 'none',
+        }}>
+          <div style={{ minWidth: 0, pointerEvents: 'auto' }}>
+            <div style={{
+              fontSize: 11, fontWeight: 700, color: 'rgba(253,248,239,0.55)',
+              letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 2,
+              fontFamily: "'Manrope',sans-serif",
+            }}>Collection by</div>
+            <div style={{
+              fontSize: 14, fontWeight: 700, color: '#FDF8EF',
+              fontFamily: "'Manrope',sans-serif",
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {username || 'Someone'}
+            </div>
+          </div>
+          <button
+            onClick={() => { window.location.href = window.location.origin + window.location.pathname + '?skipIntro=1' }}
+            style={{
+              flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6,
+              background: '#254CA4', color: '#FDF8EF', border: 'none', borderRadius: 12,
+              padding: '10px 14px', fontSize: 13, fontFamily: "'Manrope',sans-serif",
+              fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', pointerEvents: 'auto',
+            }}
+          >
+            {viewerHasOwnShelf ? 'View my shelf' : 'Create your shelf'}
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M5 3L9.5 7L5 11" stroke="#FDF8EF" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        </div>
       )}
 
       {/* SidePanelButtons — always mounted so it can animate in/out.

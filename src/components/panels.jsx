@@ -57,12 +57,10 @@ function SidePanelButtons({ editDragging, onBook, onDecor, onShelves, onMonster,
   })
 
   const containerStyle = isMobile ? {
-    // Central footer — always present; individual buttons slide in/out with build mode.
-    // Hidden while dragging so it doesn't block the drop area.
-    position: 'fixed', bottom: 20, left: '50%',
-    display: 'flex', flexDirection: 'row', alignItems: 'flex-end',
+    // Central footer — horizontally scrollable on small screens.
+    position: 'fixed', bottom: 20, left: 12, right: 12,
+    display: 'flex', justifyContent: 'center',
     zIndex: 48,
-    transform: 'translateX(-50%)',
     opacity: !editDragging ? 1 : 0,
     transition: 'opacity 0.2s ease',
     pointerEvents: 'none',
@@ -76,29 +74,130 @@ function SidePanelButtons({ editDragging, onBook, onDecor, onShelves, onMonster,
     pointerEvents: isEditMode && !editDragging ? 'auto' : 'none',
   }
 
-  return (
-    <div style={containerStyle}>
-      {/* Build / Done — mobile footer only (desktop keeps the header toggle).
-          Padding is reduced by the 3px border width so the button matches the height
-          of the borderless Book/Decor buttons beside it. */}
-      {isMobile && (
-        <div style={slide(true)}>
-          <button onClick={onToggleEdit} style={{
-            ...btnBase,
-            padding: '7px 3px',
-            background: isEditMode
-              ? '#FFD700'
-              : 'linear-gradient(#2A2A2A, #2A2A2A) padding-box, repeating-linear-gradient(-45deg, #FFD700, #FFD700 7px, #1C1C1C 7px, #1C1C1C 14px) border-box',
-            border: '3px solid transparent',
-            color: isEditMode ? '#1C1C2E' : '#FDF8EF',
-          }}>
-            {isEditMode
-              ? <IconCheck size={22} color="#1C1C2E" />
-              : <IconPencil size={22} color="#FDF8EF" />}
-            <span>{isEditMode ? 'Done' : 'Build'}</span>
-          </button>
+  const inventoryTile = inventory.length > 0 ? (() => {
+    const topItem = inventory[0]
+    const stackFirst = topItem.type === 'stack' ? topItem.books?.[0] : null
+    const stackRest  = topItem.type === 'stack' ? (topItem.books?.length ?? 1) - 1 : 0
+    return (
+      <div
+        onClick={() => onInventoryItemPlace(topItem)}
+        onMouseEnter={() => setInvHover(true)}
+        onMouseLeave={() => setInvHover(false)}
+        title={topItem.type === 'book' ? topItem.book?.title : topItem.type === 'stack' ? `${stackFirst?.title ?? 'Stack'} +${stackRest}` : topItem.decorType}
+        style={{
+          width: isMobile ? 64 : 88, height: isMobile ? 60 : 84,
+          background: 'rgba(253,248,239,0.13)',
+          color: 'rgba(253,248,239,0.55)',
+          outline: '2px dashed currentColor',
+          outlineOffset: '5px',
+          transformOrigin: 'center center',
+          animation: flashInventory
+            ? 'invShake 0.7s ease-in-out 0.6s 2, invPulse 1.2s ease-in-out 0.4s 3'
+            : 'none',
+          borderRadius: 10,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          cursor: 'pointer', flexShrink: 0,
+          pointerEvents: 'auto',
+        }}
+      >
+        <div style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4,
+          width: '100%', height: '100%',
+          transform: invHover ? 'scale(1.14) translateY(-3px)' : 'scale(1) translateY(0)',
+          transition: 'transform 0.22s cubic-bezier(0.34,1.6,0.5,1)',
+        }}>
+          {topItem.type === 'book' && (<>
+            <div style={{
+              width: 16, height: 38, borderRadius: 2,
+              background: topItem.book?.spine ?? '#5A4A3A',
+              boxShadow: '3px 4px 14px rgba(0,0,0,0.55), -1px 0 0 rgba(0,0,0,0.2)',
+            }} />
+            <div style={{
+              fontSize: 8, fontWeight: 700, color: '#FDF8EF', opacity: 0.85,
+              maxWidth: 72, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              textAlign: 'center', fontFamily: "'Manrope', sans-serif", lineHeight: 1,
+            }}>{topItem.book?.title ?? ''}</div>
+          </>)}
+          {topItem.type === 'stack' && (<>
+            <div style={{
+              width: 16, height: 38, borderRadius: 2,
+              background: stackFirst?.spine ?? '#5A4A3A',
+              boxShadow: '3px 4px 14px rgba(0,0,0,0.55), -1px 0 0 rgba(0,0,0,0.2)',
+            }} />
+            <div style={{
+              fontSize: 8, fontWeight: 700, color: '#FDF8EF', opacity: 0.85,
+              maxWidth: 72, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              textAlign: 'center', fontFamily: "'Manrope', sans-serif", lineHeight: 1,
+            }}>{(stackFirst?.title ?? 'Stack')}{stackRest > 0 ? ` +${stackRest}` : ''}</div>
+          </>)}
+          {topItem.type === 'decor' && (() => {
+            const dt = topItem.decorType
+            if (dt === 'flower')  return <PlacedFlower    w={26} />
+            if (dt === 'flower2') return <PlacedFlower2   w={26} />
+            if (dt === 'coffee')  return <PlacedCoffeeCup w={26} />
+            if (dt === 'light')   return <PlacedLight     w={26} />
+            if (dt === 'clock')   return <PlacedClock      w={26} />
+            return null
+          })()}
         </div>
-      )}
+      </div>
+    )
+  })() : null
+
+  const buildBtn = isMobile ? (
+    <div style={slide(true)}>
+      <button onClick={onToggleEdit} style={{
+        ...btnBase,
+        padding: '7px 3px',
+        background: isEditMode
+          ? '#FFD700'
+          : 'linear-gradient(#2A2A2A, #2A2A2A) padding-box, repeating-linear-gradient(-45deg, #FFD700, #FFD700 7px, #1C1C1C 7px, #1C1C1C 14px) border-box',
+        border: '3px solid transparent',
+        color: isEditMode ? '#1C1C2E' : '#FDF8EF',
+      }}>
+        {isEditMode
+          ? <IconCheck size={22} color="#1C1C2E" />
+          : <IconPencil size={22} color="#FDF8EF" />}
+        <span>{isEditMode ? 'Done' : 'Build'}</span>
+      </button>
+    </div>
+  ) : null
+
+  const editShelfBtn = isMobile ? (
+    <div style={slide(isEditMode)}>
+      <button onClick={onShelves} style={{ ...btnBase, background: '#254CA4', color: '#FDF8EF' }}>
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+          <path d="M3 6.5H19" stroke="#FDF8EF" strokeWidth="2" strokeLinecap="round" />
+          <path d="M3 12.5H19" stroke="#FDF8EF" strokeWidth="2" strokeLinecap="round" />
+          <path d="M3 18.5H19" stroke="#FDF8EF" strokeWidth="2" strokeLinecap="round" />
+          <rect x="5.5" y="8.6" width="2.6" height="3.9" rx="0.6" fill="#FDF8EF" />
+          <rect x="9.3" y="8.0" width="2.6" height="4.5" rx="0.6" fill="#FDF8EF" />
+          <rect x="6.6" y="2.6" width="2.6" height="3.9" rx="0.6" fill="#FDF8EF" />
+          <rect x="12" y="14.6" width="2.6" height="3.9" rx="0.6" fill="#FDF8EF" />
+        </svg>
+        <span style={{ whiteSpace: 'nowrap', fontSize: 11 }}>Edit shelf</span>
+      </button>
+    </div>
+  ) : (
+    <button onClick={onShelves} style={{ ...btnBase, background: '#254CA4', color: '#FDF8EF' }}
+      onMouseEnter={onHover} onMouseLeave={offHover}>
+      <svg width="28" height="28" viewBox="0 0 22 22" fill="none">
+        <path d="M3 6.5H19" stroke="#FDF8EF" strokeWidth="2" strokeLinecap="round" />
+        <path d="M3 12.5H19" stroke="#FDF8EF" strokeWidth="2" strokeLinecap="round" />
+        <path d="M3 18.5H19" stroke="#FDF8EF" strokeWidth="2" strokeLinecap="round" />
+        <rect x="5.5" y="8.6" width="2.6" height="3.9" rx="0.6" fill="#FDF8EF" />
+        <rect x="9.3" y="8.0" width="2.6" height="4.5" rx="0.6" fill="#FDF8EF" />
+        <rect x="6.6" y="2.6" width="2.6" height="3.9" rx="0.6" fill="#FDF8EF" />
+        <rect x="12" y="14.6" width="2.6" height="3.9" rx="0.6" fill="#FDF8EF" />
+      </svg>
+      <span>Shelves</span>
+    </button>
+  )
+
+  const mobileToolbar = (
+    <>
+      {buildBtn}
+      {inventoryTile && <div style={slide(isEditMode)}>{inventoryTile}</div>}
       <div style={isMobile ? slide(isEditMode) : undefined}>
         <button onClick={onBook} style={{ ...btnBase, background: '#254CA4', color: '#FDF8EF' }}
           onMouseEnter={onHover} onMouseLeave={offHover}>
@@ -120,111 +219,50 @@ function SidePanelButtons({ editDragging, onBook, onDecor, onShelves, onMonster,
           <span style={isMobile ? { fontSize: 11 } : undefined}>Style</span>
         </button>
       </div>
-      {/* Edit shelf — opens the shelf manager overlay (add / rename / delete / reorder).
-          Mobile: sits between Decor and Share in the sliding footer.
-          Desktop: added as another vertical button in the right-side stack. */}
+      {editShelfBtn}
+    </>
+  )
+
+  return (
+    <div style={containerStyle}>
       {isMobile ? (
-        <div style={slide(isEditMode)}>
-          <button onClick={onShelves} style={{ ...btnBase, background: '#254CA4', color: '#FDF8EF' }}>
-            <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-              <path d="M3 6.5H19" stroke="#FDF8EF" strokeWidth="2" strokeLinecap="round" />
-              <path d="M3 12.5H19" stroke="#FDF8EF" strokeWidth="2" strokeLinecap="round" />
-              <path d="M3 18.5H19" stroke="#FDF8EF" strokeWidth="2" strokeLinecap="round" />
-              <rect x="5.5" y="8.6" width="2.6" height="3.9" rx="0.6" fill="#FDF8EF" />
-              <rect x="9.3" y="8.0" width="2.6" height="4.5" rx="0.6" fill="#FDF8EF" />
-              <rect x="6.6" y="2.6" width="2.6" height="3.9" rx="0.6" fill="#FDF8EF" />
-              <rect x="12" y="14.6" width="2.6" height="3.9" rx="0.6" fill="#FDF8EF" />
-            </svg>
-            <span style={{ whiteSpace: 'nowrap', fontSize: 11 }}>Edit shelf</span>
-          </button>
+        <div className="mobile-footer-scroll" style={{
+          display: 'flex', flexDirection: 'row', alignItems: 'flex-end',
+          overflowX: 'auto', maxWidth: '100%',
+          WebkitOverflowScrolling: 'touch',
+          overscrollBehaviorX: 'contain',
+          padding: '2px 4px',
+          pointerEvents: 'auto',
+        }}>
+          {mobileToolbar}
         </div>
       ) : (
-        <button onClick={onShelves} style={{ ...btnBase, background: '#254CA4', color: '#FDF8EF' }}
-          onMouseEnter={onHover} onMouseLeave={offHover}>
-          <svg width="28" height="28" viewBox="0 0 22 22" fill="none">
-            <path d="M3 6.5H19" stroke="#FDF8EF" strokeWidth="2" strokeLinecap="round" />
-            <path d="M3 12.5H19" stroke="#FDF8EF" strokeWidth="2" strokeLinecap="round" />
-            <path d="M3 18.5H19" stroke="#FDF8EF" strokeWidth="2" strokeLinecap="round" />
-            <rect x="5.5" y="8.6" width="2.6" height="3.9" rx="0.6" fill="#FDF8EF" />
-            <rect x="9.3" y="8.0" width="2.6" height="4.5" rx="0.6" fill="#FDF8EF" />
-            <rect x="6.6" y="2.6" width="2.6" height="3.9" rx="0.6" fill="#FDF8EF" />
-            <rect x="12" y="14.6" width="2.6" height="3.9" rx="0.6" fill="#FDF8EF" />
-          </svg>
-          <span>Shelves</span>
-        </button>
-      )}
-      {/* Share moved to a dedicated top-right fixed button on mobile — see App root */}
-      {inventory.length > 0 && (() => {
-        const topItem = inventory[0]
-        const stackFirst = topItem.type === 'stack' ? topItem.books?.[0] : null
-        const stackRest  = topItem.type === 'stack' ? (topItem.books?.length ?? 1) - 1 : 0
-        const tile = (
-          <div
-            onClick={() => onInventoryItemPlace(topItem)}
-            onMouseEnter={() => setInvHover(true)}
-            onMouseLeave={() => setInvHover(false)}
-            title={topItem.type === 'book' ? topItem.book?.title : topItem.type === 'stack' ? `${stackFirst?.title ?? 'Stack'} +${stackRest}` : topItem.decorType}
-            style={{
-              width: isMobile ? 64 : 88, height: isMobile ? 60 : 84,
-              background: 'rgba(253,248,239,0.13)',
-              color: 'rgba(253,248,239,0.55)',
-              outline: '2px dashed currentColor',
-              outlineOffset: '5px',
-              transformOrigin: 'center center',
-              animation: flashInventory
-                ? 'invShake 0.7s ease-in-out 0.6s 2, invPulse 1.2s ease-in-out 0.4s 3'
-                : 'none',
-              borderRadius: 10,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              cursor: 'pointer', flexShrink: 0,
-              pointerEvents: 'auto',
-            }}
-          >
-            {/* Content wrapper — pops out on hover */}
-            <div style={{
-              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4,
-              width: '100%', height: '100%',
-              transform: invHover ? 'scale(1.14) translateY(-3px)' : 'scale(1) translateY(0)',
-              transition: 'transform 0.22s cubic-bezier(0.34,1.6,0.5,1)',
-            }}>
-              {topItem.type === 'book' && (<>
-                <div style={{
-                  width: 16, height: 38, borderRadius: 2,
-                  background: topItem.book?.spine ?? '#5A4A3A',
-                  boxShadow: '3px 4px 14px rgba(0,0,0,0.55), -1px 0 0 rgba(0,0,0,0.2)',
-                }} />
-                <div style={{
-                  fontSize: 8, fontWeight: 700, color: '#FDF8EF', opacity: 0.85,
-                  maxWidth: 72, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  textAlign: 'center', fontFamily: "'Manrope', sans-serif", lineHeight: 1,
-                }}>{topItem.book?.title ?? ''}</div>
-              </>)}
-              {topItem.type === 'stack' && (<>
-                <div style={{
-                  width: 16, height: 38, borderRadius: 2,
-                  background: stackFirst?.spine ?? '#5A4A3A',
-                  boxShadow: '3px 4px 14px rgba(0,0,0,0.55), -1px 0 0 rgba(0,0,0,0.2)',
-                }} />
-                <div style={{
-                  fontSize: 8, fontWeight: 700, color: '#FDF8EF', opacity: 0.85,
-                  maxWidth: 72, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  textAlign: 'center', fontFamily: "'Manrope', sans-serif", lineHeight: 1,
-                }}>{(stackFirst?.title ?? 'Stack')}{stackRest > 0 ? ` +${stackRest}` : ''}</div>
-              </>)}
-              {topItem.type === 'decor' && (() => {
-                const dt = topItem.decorType
-                if (dt === 'flower')  return <PlacedFlower    w={26} />
-                if (dt === 'flower2') return <PlacedFlower2   w={26} />
-                if (dt === 'coffee')  return <PlacedCoffeeCup w={26} />
-                if (dt === 'light')   return <PlacedLight     w={26} />
-                if (dt === 'clock')   return <PlacedClock      w={26} />
-                return null
-              })()}
-            </div>
+        <>
+          <div>
+            <button onClick={onBook} style={{ ...btnBase, background: '#254CA4', color: '#FDF8EF' }}
+              onMouseEnter={onHover} onMouseLeave={offHover}>
+              <IconBooks size={28} color="#FDF8EF" />
+              <span>Book</span>
+            </button>
           </div>
-        )
-        return isMobile ? <div style={slide(isEditMode)}>{tile}</div> : tile
-      })()}
+          <div>
+            <button onClick={onDecor} style={{ ...btnBase, background: '#254CA4', color: '#FDF8EF' }}
+              onMouseEnter={onHover} onMouseLeave={offHover}>
+              <IconLeaf size={28} color="#FDF8EF" />
+              <span>Decor</span>
+            </button>
+          </div>
+          <div>
+            <button onClick={onMonster} style={{ ...btnBase, background: '#254CA4', color: '#FDF8EF' }}
+              onMouseEnter={onHover} onMouseLeave={offHover}>
+              <IconPerson size={28} color="#FDF8EF" />
+              <span>Style</span>
+            </button>
+          </div>
+          {editShelfBtn}
+          {inventoryTile}
+        </>
+      )}
     </div>
   )
 }

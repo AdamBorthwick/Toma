@@ -17,6 +17,30 @@ function check(result, context) {
 }
 
 // ── Identity ──────────────────────────────────────────────────────────────────
+// Primary key is users.id, persisted in localStorage as toma_user_id.
+// last_ip is optional metadata — not used for lookup.
+
+const USER_ID_STORAGE_KEY = 'toma_user_id'
+
+export function getStoredUserId() {
+  try {
+    return localStorage.getItem(USER_ID_STORAGE_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function storeUserId(id) {
+  try {
+    localStorage.setItem(USER_ID_STORAGE_KEY, id)
+  } catch { /* private browsing / storage blocked */ }
+}
+
+export function clearStoredUserId() {
+  try {
+    localStorage.removeItem(USER_ID_STORAGE_KEY)
+  } catch { /* ignore */ }
+}
 
 export async function getMyIp() {
   let r
@@ -31,17 +55,72 @@ export async function getMyIp() {
   return json.ip
 }
 
-export async function getOrCreateUser(ip) {
-  check(
-    await supabase.from('users').upsert({ ip }, { onConflict: 'ip', ignoreDuplicates: true }),
-    'create user'
-  )
+async function userExists(userId) {
   const data = check(
-    await supabase.from('users').select('id').eq('ip', ip).single(),
+    await supabase.from('users').select('id').eq('id', userId).maybeSingle(),
     'lookup user'
   )
+  return !!data
+}
+
+async function touchLastIp(userId) {
+  try {
+    const ip = await getMyIp()
+    await supabase.from('users').update({ last_ip: ip }).eq('id', userId)
+  } catch {
+    // Non-fatal — identity does not depend on IP.
+  }
+}
+
+async function createNewUser() {
+  let lastIp = null
+  try {
+    lastIp = await getMyIp()
+  } catch {
+    // First visit can still succeed without ipify.
+  }
+  const data = check(
+    await supabase.from('users').insert({ last_ip: lastIp }).select('id').single(),
+    'create user'
+  )
   await ensureMonster(data.id)
+  storeUserId(data.id)
   return data.id
+}
+
+async function tryAdoptLegacyUserByIp() {
+  // Users created before localStorage identity may still be keyed by last_ip.
+  try {
+    const ip = await getMyIp()
+    const data = check(
+      await supabase.from('users').select('id').eq('last_ip', ip).limit(1).maybeSingle(),
+      'lookup legacy user by ip'
+    )
+    if (data?.id) {
+      storeUserId(data.id)
+      return data.id
+    }
+  } catch {
+    // ignore — will create a fresh user below
+  }
+  return null
+}
+
+/** Resolve the current browser's user id — localStorage first, else create. */
+export async function resolveUserId() {
+  const stored = getStoredUserId()
+  if (stored) {
+    if (await userExists(stored)) {
+      touchLastIp(stored)
+      return stored
+    }
+    clearStoredUserId()
+  }
+
+  const legacy = await tryAdoptLegacyUserByIp()
+  if (legacy) return legacy
+
+  return createNewUser()
 }
 
 // ── Book helpers ───────────────────────────────────────────────────────────────
@@ -326,10 +405,14 @@ export async function deleteReview(userId, bookId) {
 }
 
 export async function setUsername(userId, username) {
-  check(
-    await supabase.from('users').update({ username }).eq('id', userId),
-    'set username'
-  )
+  const result = await supabase.from('users').update({ username }).eq('id', userId)
+  if (result.error) {
+    const msg = result.error.message ?? ''
+    if (msg.includes('duplicate') || msg.includes('unique')) {
+      throw new DbError('That display name is already taken — try another.', result.error)
+    }
+    throw new DbError(`set username: ${msg}`, result.error)
+  }
 }
 
 export async function getUsername(userId) {

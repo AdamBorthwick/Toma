@@ -294,6 +294,23 @@ input:-webkit-autofill:focus { -webkit-box-shadow: 0 0 0 30px white inset !impor
 }
 button, [role="button"] { touch-action: manipulation; }
 
+/* Main page scrollport — momentum on iOS, smooth programmatic scrollTo. */
+.page-scroll {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+  overscroll-behavior-y: contain;
+}
+
+.mobile-footer-scroll {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  touch-action: pan-x;
+}
+.mobile-footer-scroll::-webkit-scrollbar {
+  display: none;
+}
+
 /* Dynamic-viewport fills — on iOS, 100vh includes the strip behind the collapsing
    browser toolbar, hiding bottom-anchored content (e.g. Toma's head on the title
    screen). dvh tracks the actually-visible viewport; vh is the fallback. */

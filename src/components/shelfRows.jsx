@@ -56,7 +56,7 @@ function PlacedHorizontalStack({ books, w, onBookClick, onBookMouseDown, editMod
             onMouseEnter={() => setHoveredIdx(i)}
             onMouseLeave={() => setHoveredIdx(null)}
             onPointerDown={onBookMouseDown ? e => { e.stopPropagation(); onBookMouseDown(i, e) } : undefined}
-            onClick={onBookClick ? e => { e.stopPropagation(); onBookClick(b) } : undefined}
+            onClick={onBookClick ? e => { e.stopPropagation(); onBookClick(b, e) } : undefined}
             title={b.title}
             role={onBookClick ? 'button' : undefined}
             tabIndex={onBookClick ? 0 : undefined}
@@ -86,14 +86,13 @@ function PlacedHorizontalStack({ books, w, onBookClick, onBookMouseDown, editMod
 
 // ─── EditableShelfRow ─────────────────────────────────────────────────────────
 
-function EditableShelfRow({ shelf, shelfIdx, items, dragging, dropTarget, innerRef, onPointerMove, onPointerUp, onItemPointerDown, onStackBookPointerDown, onEditClick, grabbedBookId, showEditButton, shelfH = SHELF_H, isMobile = false }) {
+function EditableShelfRow({ shelf, shelfIdx, items, dragging, dropTarget, innerRef, onPointerMove, onPointerUp, onItemPointerDown, onStackBookPointerDown, grabbedBookId, shelfH = SHELF_H, isMobile = false }) {
   const [hoveredItemId, setHoveredItemId] = useState(null)
   return (
     <>
       <div style={{ position: 'relative', display: 'flex', background: '#E2712C', borderLeft: '16px solid #E2712C', borderRight: '16px solid #E2712C' }}>
-        {/* Mobile shelf editing goes through the footer's "Shelves" list instead of per-row chips */}
+        {/* Shelf editing goes through the footer's "Shelves" list */}
         <ShelfLabel label={shelf.label} tabBg={shelf.tabBg} tabInk={shelf.tabInk} />
-        {onEditClick && !isMobile && <EditButton onClick={onEditClick} visible={showEditButton !== false} onMouseDown={e => e.stopPropagation()} />}
         <div
           ref={innerRef}
           onPointerMove={onPointerMove}
@@ -240,7 +239,7 @@ function SavedShelfRow({ shelf, items, onBookClick, onEditClick, grabbedBookId, 
                   grabbed={it.book?.id === grabbedBookId}
                   onEnter={() => setHoveredId(it.id)}
                   onLeave={() => setHoveredId(null)}
-                  onClick={onBookClick ? () => onBookClick(it.book) : undefined}
+                  onClick={onBookClick ? e => onBookClick(it.book, e) : undefined}
                 />
               )}
               {it.type === 'horizontal-stack' && <PlacedHorizontalStack books={it.books} w={it.slotWidth * SLOT_W} onBookClick={onBookClick} grabbedBookId={grabbedBookId} />}
@@ -403,20 +402,9 @@ function ShelfLabel({ label, tabBg, tabInk, onEdit = null }) {
 
 // ─── ShelfPlate — gold nameplate above the bookcase ──────────────────────────
 
-function ShelfPlate({ shelfName, username, onEdit, showEditButton, isMobile = false }) {
-  const [hovered, setHovered] = useState(false)
-  const ref = useRef()
+function ShelfPlate({ shelfName, username, isMobile = false }) {
   return (
-    <div
-      ref={ref}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={e => { if (!ref.current?.contains(e.relatedTarget)) setHovered(false) }}
-      style={{ position: 'relative', display: 'inline-block' }}
-    >
-      {/* invisible hover zone extending left to cover the edit button area */}
-      {showEditButton && (
-        <div style={{ position: 'absolute', right: '100%', top: 0, bottom: 0, width: 130 }} />
-      )}
+    <div style={{ position: 'relative', display: 'inline-block' }}>
       <div style={{
         background: '#F2EFE8',
         borderRadius: 7,
@@ -433,8 +421,6 @@ function ShelfPlate({ shelfName, username, onEdit, showEditButton, isMobile = fa
           </div>
         )}
       </div>
-      {/* Desktop: hover-reveal Edit button. Mobile edits the plate via the Shelves overlay. */}
-      {showEditButton && !isMobile && <EditButton onClick={onEdit} visible={hovered} />}
     </div>
   )
 }
@@ -456,7 +442,7 @@ function ShelfRow({ shelf, hoveredId, grabbedId, onEnter, onLeave, onClick, onEd
                 grabbed={item.id === grabbedId}
                 onEnter={() => onEnter(item)}
                 onLeave={() => onLeave(item)}
-                onClick={() => onClick(item)}
+                onClick={e => onClick(item, e)}
               />
             )
             if (item.type === 'stack') return (
@@ -467,7 +453,7 @@ function ShelfRow({ shelf, hoveredId, grabbedId, onEnter, onLeave, onClick, onEd
                     grabbed={b.id === grabbedId}
                     onEnter={() => onEnter(b)}
                     onLeave={() => onLeave(b)}
-                    onClick={() => onClick(b)}
+                    onClick={e => onClick(b, e)}
                   />
                 ))}
               </div>

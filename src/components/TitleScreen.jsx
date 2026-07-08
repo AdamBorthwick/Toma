@@ -132,7 +132,7 @@ function TitleScreen({ onDismiss, onReveal, scale, fromSurface = false, bodyColo
         </div>
       </div>
 
-      {/* z:2 — TOMA! letters + subtitle + button */}
+      {/* z:2 — TOMA! letters + subtitle */}
       <div style={{
         position: 'absolute', top: '4vh', left: 0, right: 0,
         display: 'flex', flexDirection: 'column', alignItems: 'center',
@@ -140,6 +140,7 @@ function TitleScreen({ onDismiss, onReveal, scale, fromSurface = false, bodyColo
         opacity: (contentReady && !exitPhase) ? 1 : 0,
         transform: contentEntered ? 'translateY(0)' : 'translateY(-80px)',
         transition: 'opacity 0.4s ease, transform 0.65s cubic-bezier(0.22,1,0.36,1)',
+        pointerEvents: 'none',
       }}>
         {/* Letter row in a fixed-height container so hover pops don't shift subtitle */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.01em', height: 'clamp(72px, 15.5vw, 215px)' }}>
@@ -153,6 +154,7 @@ function TitleScreen({ onDismiss, onReveal, scale, fromSurface = false, bodyColo
                 fontSize: 'clamp(64px, 14vw, 200px)',
                 color: '#FFFFFF', lineHeight: 1,
                 display: 'inline-block', userSelect: 'none', cursor: 'default',
+                pointerEvents: 'auto',
                 transform: hoveredLetter === i
                   ? `rotate(${l.r * 2.8}deg) translateY(-14px) scale(1.3)`
                   : `rotate(${l.r}deg) translateY(${l.dy}px)`,
@@ -167,6 +169,22 @@ function TitleScreen({ onDismiss, onReveal, scale, fromSurface = false, bodyColo
           letterSpacing: '0.08em',
           textTransform: 'uppercase',
         }}>Create a Personal Collection</div>
+      </div>
+
+      {/* z:4 — Start button always above Toma's face */}
+      <div style={{
+        position: 'absolute', top: '4vh', left: 0, right: 0,
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        zIndex: 4, pointerEvents: 'none',
+        opacity: (contentReady && !exitPhase) ? 1 : 0,
+        transform: contentEntered ? 'translateY(0)' : 'translateY(-80px)',
+        transition: 'opacity 0.4s ease, transform 0.65s cubic-bezier(0.22,1,0.36,1)',
+      }}>
+        <div style={{ height: 'clamp(72px, 15.5vw, 215px)' }} />
+        <div style={{ height: 14 }} />
+        <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.4, visibility: 'hidden' }} aria-hidden>
+          Create a Personal Collection
+        </div>
         <button
           onClick={(e) => { e.stopPropagation(); handleClick() }}
           onMouseEnter={() => setBtnHover(true)}
@@ -177,6 +195,7 @@ function TitleScreen({ onDismiss, onReveal, scale, fromSurface = false, bodyColo
             fontSize: 14, fontWeight: 700,
             fontFamily: "'Manrope', sans-serif",
             letterSpacing: '0.06em', cursor: 'pointer',
+            pointerEvents: 'auto',
             transform: btnHover ? 'scale(1.1) translateY(-3px)' : 'scale(1) translateY(0)',
             boxShadow: btnHover ? '0 10px 28px rgba(0,0,0,0.45)' : '0 4px 12px rgba(0,0,0,0.25)',
             transition: 'transform 0.18s cubic-bezier(.34,1.6,.5,1), box-shadow 0.18s ease',

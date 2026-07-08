@@ -1,11 +1,11 @@
 -- Sprout / TOMA schema
 -- Run in the Supabase SQL editor or via `supabase db push`.
 
--- ── Users (IP-based identity for prototype; replace with Supabase Auth in production) ──
+-- ── Users (uuid persisted in browser localStorage; last_ip is metadata only) ──
 
 create table if not exists users (
   id         uuid primary key default gen_random_uuid(),
-  ip         text unique not null,
+  last_ip    text,
   username   text,
   created_at timestamptz not null default now()
 );
@@ -136,7 +136,7 @@ alter table books           enable row level security;
 alter table reviews         enable row level security;
 alter table inventory_items enable row level security;
 
--- Allow all operations via the anon key (matches current client-side IP identity model).
+-- Allow all operations via the anon key (matches current client-side device identity model).
 -- Replace with auth.uid()-scoped policies when Supabase Auth is added.
 do $$ begin
   if not exists (select 1 from pg_policies where tablename = 'users' and policyname = 'anon_all') then
