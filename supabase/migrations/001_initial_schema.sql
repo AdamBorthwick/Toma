@@ -10,6 +10,20 @@ create table if not exists users (
   created_at timestamptz not null default now()
 );
 
+-- ── Monsters (one appearance per user) ────────────────────────────────────────────────
+
+create table if not exists monsters (
+  id            uuid primary key default gen_random_uuid(),
+  user_id       uuid not null unique references users(id) on delete cascade,
+  color_key     text not null default 'green',
+  hat_key       text not null default 'none',
+  hat_color_key text not null default 'red',
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
+
+create index if not exists monsters_user_id_idx on monsters(user_id);
+
 -- ── Books (shared catalog — keyed by Open Library work id or custom id) ───────────────
 
 create table if not exists books (
@@ -112,6 +126,7 @@ create index if not exists inventory_items_user_id_idx on inventory_items(user_i
 -- ── Row Level Security (permissive for anon key prototype — tighten before production) ─
 
 alter table users           enable row level security;
+alter table monsters        enable row level security;
 alter table bookshelves     enable row level security;
 alter table shelf_rows      enable row level security;
 alter table shelf_books     enable row level security;
@@ -126,6 +141,9 @@ alter table inventory_items enable row level security;
 do $$ begin
   if not exists (select 1 from pg_policies where tablename = 'users' and policyname = 'anon_all') then
     create policy anon_all on users for all using (true) with check (true);
+  end if;
+  if not exists (select 1 from pg_policies where tablename = 'monsters' and policyname = 'anon_all') then
+    create policy anon_all on monsters for all using (true) with check (true);
   end if;
   if not exists (select 1 from pg_policies where tablename = 'bookshelves' and policyname = 'anon_all') then
     create policy anon_all on bookshelves for all using (true) with check (true);

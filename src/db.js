@@ -40,6 +40,7 @@ export async function getOrCreateUser(ip) {
     await supabase.from('users').select('id').eq('ip', ip).single(),
     'lookup user'
   )
+  await ensureMonster(data.id)
   return data.id
 }
 
@@ -262,6 +263,14 @@ export async function persistShelf(userId, shelfName, shelfConfigs, shelfContent
     return
   }
 
+  // Delete existing rows before insert — (bookshelf_id, position) is unique.
+  if (oldRowIds.length) {
+    check(
+      await supabase.from('shelf_rows').delete().in('id', oldRowIds),
+      'clear shelf rows'
+    )
+  }
+
   const savedRows = check(
     await supabase.from('shelf_rows').insert(
       shelfConfigs.map((cfg, i) => ({
@@ -272,13 +281,6 @@ export async function persistShelf(userId, shelfName, shelfConfigs, shelfContent
   ) ?? []
 
   await _insertShelfContents(savedRows, shelfContents)
-
-  if (oldRowIds.length) {
-    check(
-      await supabase.from('shelf_rows').delete().in('id', oldRowIds),
-      'remove stale shelf rows'
-    )
-  }
 }
 
 export async function getShareId(userId) {
@@ -338,29 +340,60 @@ export async function getUsername(userId) {
   return data?.username ?? null
 }
 
-export async function getMonsterLook(userId) {
-  try {
-    const data = check(
-      await supabase.from('users').select('monster_color, monster_hat, monster_hat_color').eq('id', userId).single(),
-      'get monster look'
-    )
-    return {
-      colorKey: data?.monster_color ?? 'green',
-      hatKey: normalizeHatKey(data?.monster_hat ?? 'none'),
-      hatColorKey: data?.monster_hat_color ?? 'red',
-    }
-  } catch {
-    return { colorKey: 'green', hatKey: 'none', hatColorKey: 'red' }
+const MONSTER_LOOK_DEFAULTS = { colorKey: 'green', hatKey: 'none', hatColorKey: 'red' }
+
+function rowToMonsterLook(row) {
+  if (!row) return { ...MONSTER_LOOK_DEFAULTS }
+  return {
+    colorKey: row.color_key ?? MONSTER_LOOK_DEFAULTS.colorKey,
+    hatKey: normalizeHatKey(row.hat_key ?? MONSTER_LOOK_DEFAULTS.hatKey),
+    hatColorKey: row.hat_color_key ?? MONSTER_LOOK_DEFAULTS.hatColorKey,
   }
+}
+
+export async function ensureMonster(userId) {
+  check(
+    await supabase.from('monsters').upsert(
+      {
+        user_id: userId,
+        color_key: MONSTER_LOOK_DEFAULTS.colorKey,
+        hat_key: MONSTER_LOOK_DEFAULTS.hatKey,
+        hat_color_key: MONSTER_LOOK_DEFAULTS.hatColorKey,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id', ignoreDuplicates: true }
+    ),
+    'ensure monster'
+  )
+}
+
+export async function getMonsterLook(userId) {
+  const data = check(
+    await supabase.from('monsters')
+      .select('color_key, hat_key, hat_color_key')
+      .eq('user_id', userId)
+      .maybeSingle(),
+    'get monster look'
+  )
+  if (!data) {
+    await ensureMonster(userId)
+    return { ...MONSTER_LOOK_DEFAULTS }
+  }
+  return rowToMonsterLook(data)
 }
 
 export async function setMonsterLook(userId, colorKey, hatKey, hatColorKey) {
   check(
-    await supabase.from('users').update({
-      monster_color: colorKey,
-      monster_hat: hatKey,
-      monster_hat_color: hatColorKey,
-    }).eq('id', userId),
+    await supabase.from('monsters').upsert(
+      {
+        user_id: userId,
+        color_key: colorKey,
+        hat_key: hatKey,
+        hat_color_key: hatColorKey,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' }
+    ),
     'set monster look'
   )
 }
