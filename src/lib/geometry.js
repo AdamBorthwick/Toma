@@ -1,18 +1,5 @@
-import { NUM_SLOTS, MOBILE_ZOOMED_OUT_FIT, MOBILE_ZOOMED_IN_FIT, BOOKCASE_LEFT, MOBILE_ZOOMED_IN_PEEK_LEFT, MOBILE_ZOOMED_IN_RIGHT } from './constants.js'
-import { DragGhost } from '../components/shelfRows.jsx'
+import { NUM_SLOTS } from './layout.js'
 
-function mobileShelfScrollBounds(el, scale) {
-  const shelfLeft = BOOKCASE_LEFT * scale
-  const min = Math.max(0, shelfLeft - MOBILE_ZOOMED_IN_PEEK_LEFT)
-  const max = Math.max(min, MOBILE_ZOOMED_IN_RIGHT * scale - el.clientWidth)
-  return { min, max }
-}
-
-function computeMobileScale(zoomedIn, viewportW) {
-  const fitW = zoomedIn ? MOBILE_ZOOMED_IN_FIT : MOBILE_ZOOMED_OUT_FIT
-  const base = viewportW / fitW
-  return Math.max(0.4, Math.min(3.0, zoomedIn ? base * 1.5 : base))
-}
 const GHOST_LIFT = 48  // px the drag ghost floats above the finger on touch (thumb hides it otherwise);
                        // drop detection uses the ghost position, so highlight matches what you see
 
@@ -123,4 +110,4 @@ function titleT(title) {
 }
 
 
-export { mobileShelfScrollBounds, computeMobileScale, GHOST_LIFT, setGhostPos, slotsOverlap, freeZoneAt, findFreeZone, computeArm, computeFingerPaths, titleT }
+export { GHOST_LIFT, setGhostPos, slotsOverlap, freeZoneAt, findFreeZone, computeArm, computeFingerPaths, titleT }

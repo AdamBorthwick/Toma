@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { SLOT_W, NUM_SLOTS, SHELF_H } from '../lib/constants.js'
+import { SLOT_W, NUM_SLOTS, SHELF_H } from '../lib/layout.js'
 import { setGhostPos, titleT } from '../lib/geometry.js'
 import { IconPencil } from './icons.jsx'
 import { PlacedFlower, PlacedFlower2, PlacedCoffeeCup, PlacedLight, PlacedClock } from './decor.jsx'
@@ -278,8 +278,11 @@ function DragGhost({ dragging, ghostRef, dragRotated, stageSc = 1, shelfH = SHEL
     content = <PlacedHorizontalStack books={[dragging.book]} w={gW} />
   } else if (isBook) {
     gW = slotW; gH = bookH
-    // Mobile: center the ghost on the finger (drop point). Desktop keeps the book to
-    // the left of the cursor so the mouse pointer sees the shelf beside the book.
+    // Ghost anchor is intentionally different per platform:
+    //   Mobile — the finger is already covering the ghost location, so aligning the
+    //   book's centre to the drop point costs nothing and makes placement predictable.
+    //   Desktop — the mouse cursor needs to see the shelf slot it's aiming at, so the
+    //   ghost is anchored to the LEFT of the cursor (book fully left, cursor uncovered).
     tx = isMobile ? -gW / 2 : -gW
     ty = -(bookH / 2)
     content = <PlacedVerticalBook book={dragging.book} w={gW} h={bookH} />

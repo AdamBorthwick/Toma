@@ -1,7 +1,10 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
 import { resolveUserId, loadShelfByUserId, loadShelfByShareId, loadReviews, persistShelf, getShareId, setUsername as saveUsername, getUsername, getMonsterLook, setMonsterLook, loadInventory, addInventoryBook, addInventoryStack, addInventoryDecor, removeInventoryItem, DbError } from './db.js'
-import { SLOT_W, NUM_SLOTS, SHELF_H, BOOKCASE_LEFT, BOOKCASE_WIDTH, MOBILE_ZOOMED_IN_MONSTER_BIAS, isRotatableDragType } from './lib/constants.js'
-import { mobileShelfScrollBounds, computeMobileScale, setGhostPos, slotsOverlap, findFreeZone, computeArm, computeFingerPaths, titleT } from './lib/geometry.js'
+import { SLOT_W, NUM_SLOTS, SHELF_H, BOOKCASE_LEFT, BOOKCASE_WIDTH, isRotatableDragType } from './lib/layout.js'
+import { MOBILE_ZOOMED_IN_MONSTER_BIAS } from './lib/mobileZoom.js'
+import { setGhostPos, slotsOverlap, findFreeZone, computeArm, computeFingerPaths, titleT } from './lib/geometry.js'
+import { computeMobileScale, computeStageScale } from './lib/scale.js'
+import { mobileShelfScrollBounds } from './lib/scroll.js'
 import { fetchDefaultShelfData } from './lib/openLibrary.js'
 import { SHELVES, getShelfColors, reconstructShelf } from './data/shelves.jsx'
 import { getMonsterColors } from './data/monster.jsx'
@@ -162,7 +165,10 @@ export default function App() {
   const [shelfContents, setShelfContents] = useState([])
   const [editDragging, setEditDragging] = useState(null)
   // editDragging = { type, slotWidth, book?, books?, sourceItemId? }
-  const [editDragStagePos, setEditDragStagePos] = useState(null)
+  // Boolean flag driving `isEditDragArm` (arm visible while dragging + a 260ms linger
+  // for the grip-release animation). Was a {x,y} state until we noticed it re-set every
+  // pointer move but readers only null-check it — burning a re-render per frame.
+  const [editDragArmVisible, setEditDragArmVisible] = useState(false)
   const [dropTarget, setDropTarget] = useState(null)
   const [showBookPanel, setShowBookPanel] = useState(false)
   const [showDecorPanel, setShowDecorPanel] = useState(false)
@@ -714,15 +720,9 @@ export default function App() {
       if (scaleAnimatingRef.current) return
       // Mobile scale is off viewport width (containerRef sizes to content on mobile).
       // Desktop scale uses containerRef's clientWidth so scrollbars don't shift centering.
-      const w = isMobile
-        ? (scrollRef.current ? scrollRef.current.clientWidth : window.innerWidth)
-        : (containerRef.current ? containerRef.current.clientWidth : window.innerWidth)
-      let s
-      if (isMobile) {
-        s = computeMobileScale(zoomedIn, w)
-      } else {
-        s = Math.max(0.45, Math.min(2.5, w / 1080))
-      }
+      const viewportW = scrollRef.current ? scrollRef.current.clientWidth : window.innerWidth
+      const containerW = containerRef.current ? containerRef.current.clientWidth : window.innerWidth
+      const s = computeStageScale({ isMobile, zoomedIn, viewportW, containerW })
       setScale(s)
       setShelfH(SHELF_H)
     }
@@ -1011,7 +1011,7 @@ export default function App() {
       setMonsterHatColorKey(look.hatColorKey)
       setInventory(inv)
       if (isNewUser) setShowOnboarding(true)
-      if (_startEdit) { isEditModeRef.current = true; setIsEditMode(true) }
+      if (_startEdit || isNewUser) { isEditModeRef.current = true; setIsEditMode(true) }
       if (_skipIntro || _startEdit) window.history.replaceState({}, '', window.location.pathname)
     }
 
@@ -1615,7 +1615,7 @@ export default function App() {
     setShowMonsterPanel(false)
     setStackBooks([])
     if (editDragReleaseTimer.current) { clearTimeout(editDragReleaseTimer.current); editDragReleaseTimer.current = null }
-    setEditDragStagePos(null)
+    setEditDragArmVisible(false)
   }
 
   // Iris tracking — move eyes toward mouse cursor
@@ -1690,7 +1690,7 @@ export default function App() {
       const pos = clientToStage(cx, cy, true)
       if (!pos) return
       snapArmTarget(pos)
-      setEditDragStagePos(pos)
+      setEditDragArmVisible(true)
     }
     const autoZoomed = ensureMobileDragZoom(e.clientX, e.clientY, placeArm)
     setEditDragging(info)
@@ -1700,6 +1700,16 @@ export default function App() {
 
   function startArmLerp(target) {
     lerpArmTarget(target, 0.18, () => !!editDraggingRef.current)
+  }
+
+  // Unified arm-follow — one call site instead of an if/else at every hop.
+  //  smooth: true  → glide via exponential-smoothing lerp (mobile drag; finger jumps
+  //                  are much bigger than mouse jitter so easing feels natural)
+  //  smooth: false → snap immediately (desktop mouse tracking; latency is the enemy)
+  function armFollow(pos, { smooth } = {}) {
+    if (smooth) { startArmLerp(pos); return }
+    displayTargetRef.current = pos
+    setDisplayTarget(pos)
   }
 
   // Global mousemove while edit-dragging: update ghost + compute drop target
@@ -1824,18 +1834,13 @@ export default function App() {
       // Drive the real Sprout arm to the finger — ghost clamping is visual only.
       const pos = clientToStage(e.clientX, e.clientY, onTouchLayout)
       if (pos) {
-        if (onTouchLayout) {
-          startArmLerp(pos)
-        } else {
-          displayTargetRef.current = pos
-          setDisplayTarget(pos)
-        }
-        setEditDragStagePos(pos)
+        armFollow(pos, { smooth: onTouchLayout })
+        setEditDragArmVisible(true)
       }
 
       // Touch: hover never fires, so hit-test the finger against the Rotate/Delete
       // buttons directly (mirrors the desktop onMouseEnter/onMouseLeave semantics).
-      if (window.innerWidth < 768) {
+      if (onTouchLayout) {
         const inside = r => !!r && e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom
         const rotatable = isRotatableDragType(dragType)
         const overRotate = rotatable && inside(rotateBtnRef.current?.getBoundingClientRect())
@@ -1860,17 +1865,17 @@ export default function App() {
       }
     }
     function onUp(e) {
-      // Delay clearing editDragStagePos so the arm lingers while the grip-release animation plays (220ms)
+      // Delay clearing editDragArmVisible so the arm lingers while the grip-release animation plays (220ms)
       if (editDragReleaseTimer.current) clearTimeout(editDragReleaseTimer.current)
       editDragReleaseTimer.current = setTimeout(() => {
-        setEditDragStagePos(null)
+        setEditDragArmVisible(false)
         editDragReleaseTimer.current = null
       }, 260)
       const drag = editDraggingRef.current
       if (!drag) return
       // Delete: mouse released on the delete button (its onMouseUp sets the ref), or on
       // touch — where element onMouseUp never fires — finger lifted while over it
-      if (deleteConfirmedRef.current || (window.innerWidth < 768 && dragOverDeleteRef.current)) {
+      if (deleteConfirmedRef.current || (isMobileRef.current && dragOverDeleteRef.current)) {
         deleteConfirmedRef.current = false
         dragOverDeleteRef.current = false; setDragOverDelete(false)
         setDropTarget(null)
@@ -2051,7 +2056,7 @@ export default function App() {
       const pos = clientToStage(cx, cy, isMobileRef.current)
       if (!pos) return
       snapArmTarget(pos)
-      setEditDragStagePos(pos)
+      setEditDragArmVisible(true)
     }
     const autoZoomed = ensureMobileDragZoom(e.clientX, e.clientY, placeArm)
     setEditDragging(drag)
@@ -2118,7 +2123,7 @@ export default function App() {
       const pos = clientToStage(cx, cy, isMobileRef.current)
       if (!pos) return
       snapArmTarget(pos)
-      setEditDragStagePos(pos)
+      setEditDragArmVisible(true)
     }
     const autoZoomed = ensureMobileDragZoom(e.clientX, e.clientY, placeArm)
     setEditDragging({ type: 'horizontal-stack', slotWidth: stackItem.slotWidth,
@@ -2264,7 +2269,7 @@ export default function App() {
   // During retreating the arm is at z=1 (behind shelf). Otherwise let the hand reach
   // the bottom shelf row (elbow can sit slightly below the bookcase floor line).
   const maxElbowY = retreating ? bookcaseBottom - 60 : bookcaseBottom + 36
-  const isEditDragArm = editDragStagePos !== null
+  const isEditDragArm = editDragArmVisible
   const armTarget = displayTarget
   const armMaxTx = isMobile ? 850 : 786
   const arm = computeArm(armTarget, retractMode, returnProgress, maxElbowY, isEditDragArm ? -600 : 270, armMaxTx)
@@ -2760,7 +2765,7 @@ export default function App() {
                     transition: 'left 0.18s cubic-bezier(.4,0,.2,1)',
                   }}/>
                 </div>
-                Build mode
+                Edit mode
               </button>
             )}
           </div>

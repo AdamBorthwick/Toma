@@ -1,4 +1,4 @@
-import { publicPath } from '../lib/constants.js'
+import { publicPath } from '../lib/layout.js'
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
