@@ -1240,7 +1240,6 @@ export default function App() {
   }, [
     displayTarget,
     retractMode,
-    returnProgress,
     headIntroTop,
     headIntroLeft,
     grabPhase,
