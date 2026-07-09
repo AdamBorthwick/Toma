@@ -1,5 +1,24 @@
 *, *::before, *::after { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; overflow-x: hidden; }
+
+:root {
+  --color-primary: #254CA4;
+  --color-surface: #FDF8EF;
+  --color-text: #1C1C2E;
+  --color-muted: #606078;
+  --color-border: #D0D0DC;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-sheet: 18px;
+  --radius-dialog: 20px;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+  font-family: 'Manrope', sans-serif;
+}
 
 /* disable text selection and context menu across the whole app */
 * { user-select: none; -webkit-user-select: none; }
@@ -221,64 +240,126 @@ input:-webkit-autofill:focus { -webkit-box-shadow: 0 0 0 30px white inset !impor
   72% { transform: translateX(3px) rotate(1.5deg); }
 }
 
-/* Style modal — hat row bleeds past sheet padding with edge fade */
-.style-hat-bleed {
+/* Scroll fade — reusable edge hint for scrollable panels and rows */
+.scroll-fade-bleed {
   position: relative;
-  margin-bottom: 20px;
   overflow: visible;
 }
-.style-hat-fade-wrap {
+.scroll-fade-wrap {
   position: relative;
-  --hat-fade: 32px;
+  --scroll-fade-size: 32px;
+  --scroll-fade-color: var(--color-surface, #FDF8EF);
+  overflow: visible;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.scroll-fade-wrap--self {
+  flex: none;
+  min-height: auto;
+  display: block;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y;
+  scrollbar-width: none;
+}
+.scroll-fade-wrap--self::-webkit-scrollbar {
+  display: none;
+}
+.scroll-fade-wrap--y {
+  overflow: hidden;
+}
+.scroll-fade-wrap--x {
+  flex: none;
+  min-height: auto;
   overflow: visible;
 }
-.style-hat-fade-wrap::before,
-.style-hat-fade-wrap::after {
+.scroll-fade-wrap--y::before,
+.scroll-fade-wrap--y::after {
   content: '';
   position: absolute;
-  top: 0;
-  bottom: 0;
-  width: var(--hat-fade);
+  left: 0;
+  right: 0;
+  height: var(--scroll-fade-size);
   z-index: 2;
   pointer-events: none;
   transition: opacity 0.2s ease;
 }
-.style-hat-fade-wrap::before {
+.scroll-fade-wrap--y::before {
+  top: 0;
+  background: linear-gradient(to bottom, var(--scroll-fade-color) 12%, rgba(253, 248, 239, 0));
+  opacity: var(--fade-start-opacity, 0);
+}
+.scroll-fade-wrap--y::after {
+  bottom: 0;
+  background: linear-gradient(to top, var(--scroll-fade-color) 12%, rgba(253, 248, 239, 0));
+  opacity: var(--fade-end-opacity, 0);
+}
+.scroll-fade-wrap--x::before,
+.scroll-fade-wrap--x::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: var(--scroll-fade-size);
+  z-index: 2;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+.scroll-fade-wrap--x::before {
   left: 0;
-  background: linear-gradient(to right, #FDF8EF 12%, rgba(253, 248, 239, 0));
-  opacity: var(--fade-left-opacity, 0);
+  background: linear-gradient(to right, var(--scroll-fade-color) 12%, rgba(253, 248, 239, 0));
+  opacity: var(--fade-start-opacity, 0);
 }
-.style-hat-fade-wrap::after {
+.scroll-fade-wrap--x::after {
   right: 0;
-  background: linear-gradient(to left, #FDF8EF 12%, rgba(253, 248, 239, 0));
-  opacity: var(--fade-right-opacity, 1);
+  background: linear-gradient(to left, var(--scroll-fade-color) 12%, rgba(253, 248, 239, 0));
+  opacity: var(--fade-end-opacity, 0);
 }
-.style-hat-scroll {
+.scroll-fade-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y;
+  scrollbar-width: none;
+}
+.scroll-fade-scroll::-webkit-scrollbar {
+  display: none;
+}
+.scroll-fade-scroll--x {
   display: flex;
   gap: 10px;
   width: 100%;
   max-width: 100%;
   overflow-x: auto;
   overflow-y: visible;
-  -webkit-overflow-scrolling: touch;
   touch-action: pan-x;
   overscroll-behavior-x: contain;
-  scrollbar-width: none;
   cursor: grab;
   padding: 10px 20px 14px;
 }
-.style-hat-scroll.is-dragging {
+.scroll-fade-scroll--x.is-dragging {
   cursor: grabbing;
   user-select: none;
   -webkit-user-select: none;
 }
-.style-hat-scroll::-webkit-scrollbar {
-  display: none;
-}
-.style-hat-scroll button {
+.scroll-fade-scroll--x button {
   touch-action: manipulation;
   flex-shrink: 0;
   margin: 2px 0;
+}
+
+/* Style modal — hat row bleeds past sheet padding with edge fade */
+.style-hat-bleed {
+  position: relative;
+  margin-bottom: 20px;
+  overflow: visible;
 }
 @keyframes titlePulse {
   0%, 100% { opacity: 0.3; }
@@ -294,10 +375,9 @@ input:-webkit-autofill:focus { -webkit-box-shadow: 0 0 0 30px white inset !impor
 }
 button, [role="button"] { touch-action: manipulation; }
 
-/* Main page scrollport — momentum on iOS, smooth programmatic scrollTo. */
+/* Main page scrollport — momentum on iOS; wheel smoothing is handled in JS. */
 .page-scroll {
   -webkit-overflow-scrolling: touch;
-  scroll-behavior: smooth;
   overscroll-behavior-y: contain;
 }
 
@@ -311,13 +391,27 @@ button, [role="button"] { touch-action: manipulation; }
   display: none;
 }
 
+/* Scrollable region inside a capped bottom sheet (e.g. shelf list). */
+.panel-scroll,
+.scroll-fade-scroll,
+.scroll-fade-wrap--self {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y;
+}
+
 /* Dynamic-viewport fills — on iOS, 100vh includes the strip behind the collapsing
    browser toolbar, hiding bottom-anchored content (e.g. Toma's head on the title
    screen). dvh tracks the actually-visible viewport; vh is the fallback. */
 .fill-viewport     { height: 100vh; }
 .min-fill-viewport { min-height: 100vh; }
 .gap-viewport      { height: 80vh; }  /* must match GAP_VH in App.jsx */
-.sheet-max-viewport { max-height: 80vh; }  /* bottom sheets: cap to visible viewport */
+.sheet-max-viewport {
+  max-height: 80vh;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y;
+}
 @supports (height: 100dvh) {
   .fill-viewport     { height: 100dvh; }
   .min-fill-viewport { min-height: 100dvh; }

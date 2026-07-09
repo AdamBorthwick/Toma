@@ -1,14 +1,14 @@
 import { useState, useRef } from 'react'
-import { SLOT_W, NUM_SLOTS, SHELF_H } from '../lib/layout.js'
-import { setGhostPos, titleT } from '../lib/geometry.js'
+import { SLOT_W, NUM_SLOTS, SHELF_H, SHELF_TAB_FONT_EM, SHELF_EDIT_FONT_EM, SHELF_HINT_FONT_EM, PLATE_EM_BASE, PLATE_TITLE_FONT_EM, PLATE_USER_FONT_EM } from '../lib/layout.js'
+import { getSpineDims } from '../lib/spineTypography.js'
+import { setGhostPos } from '../lib/geometry.js'
 import { IconPencil } from './icons.jsx'
 import { PlacedFlower, PlacedFlower2, PlacedCoffeeCup, PlacedLight, PlacedClock } from './decor.jsx'
 import { VerticalBook, HorizontalBook } from './scene.jsx'
+import { SpineLabel } from './SpineLabel.jsx'
 
 function PlacedVerticalBook({ book, w, h, active, grabbed, onEnter, onLeave, onClick }) {
-  const bookH = Math.round(h * (0.72 + titleT(book?.title) * 0.28))
-  const titleLen = (book?.title || '').length
-  const spineFontSize = Math.max(7, Math.min(10, Math.floor((bookH - 8) / (titleLen * 0.62))))
+  const spineDims = getSpineDims({ axis: 'vertical', title: book?.title, slotW: w, shelfH: h })
   return (
     <div
       onMouseEnter={() => { if (book?.thumbnail) { const img = new Image(); img.src = book.thumbnail }; onEnter?.() }}
@@ -23,8 +23,9 @@ function PlacedVerticalBook({ book, w, h, active, grabbed, onEnter, onLeave, onC
       style={{ width: w, height: h, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', cursor: onClick ? 'pointer' : 'default' }}
     >
       <div style={{
-        width: '100%', height: bookH, background: book?.spine ?? '#555',
-        borderRadius: '3px 3px 1px 1px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+        width: '100%', height: spineDims.h,
+        background: book?.spine ?? '#555',
+        borderRadius: '3px 3px 1px 1px', overflow: 'hidden',
         visibility: grabbed ? 'hidden' : 'visible',
         boxShadow: active
           ? 'inset -2px 0 5px rgba(0,0,0,0.18), 0 0 0 2px rgba(253,248,239,0.85), 0 6px 16px rgba(60,30,10,0.3)'
@@ -32,7 +33,7 @@ function PlacedVerticalBook({ book, w, h, active, grabbed, onEnter, onLeave, onC
         transform: active ? 'translateY(-8px)' : 'none',
         transition: 'transform .22s cubic-bezier(.34,1.56,.64,1), box-shadow .18s ease',
       }}>
-        <span style={{ writingMode: 'vertical-rl', fontFamily: "'Manrope',sans-serif", fontWeight: 600, fontSize: spineFontSize, letterSpacing: spineFontSize < 9 ? '0' : '0.3px', color: book?.ink ?? '#fff', whiteSpace: 'nowrap', padding: '4px 0', pointerEvents: 'none' }}>{book?.title}</span>
+        <SpineLabel axis="vertical" title={book?.title} dims={spineDims} ink={book?.ink ?? '#fff'} />
       </div>
     </div>
   )
@@ -43,10 +44,7 @@ function PlacedHorizontalStack({ books, w, onBookClick, onBookMouseDown, editMod
   return (
     <div style={{ width: w, height: '100%', display: 'flex', flexDirection: 'column-reverse', alignItems: 'center', gap: 0, paddingTop: 6, boxSizing: 'border-box', justifyContent: 'flex-start' }}>
       {(books || []).map((b, i) => {
-        const t = titleT(b.title)
-        const slabH = Math.round(20 + t * 16)
-        const slabW = Math.round(w * (0.8 + t * 0.2))
-        const slabFontSize = Math.max(7, Math.min(10, Math.floor((slabW * 0.90) / ((b.title || '').length * 0.6))))
+        const slabDims = getSpineDims({ axis: 'horizontal', title: b.title, slotW: w })
         // browse: highlight only the hovered slab; edit: highlight hovered slab and everything above it (the grab slice)
         const active = hoveredIdx !== null && (editMode ? i >= hoveredIdx : i === hoveredIdx)
         const grabbed = grabbedBookId && b.id === grabbedBookId
@@ -63,7 +61,7 @@ function PlacedHorizontalStack({ books, w, onBookClick, onBookMouseDown, editMod
             aria-label={onBookClick ? `Open ${b.title}` : undefined}
             onKeyDown={onBookClick ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onBookClick(b) } } : undefined}
             style={{
-              width: slabW, height: slabH, background: b.spine, borderRadius: 2, flexShrink: 0,
+              width: slabDims.w, height: slabDims.h, background: b.spine, borderRadius: 2, flexShrink: 0,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               overflow: 'hidden',
               visibility: grabbed ? 'hidden' : 'visible',
@@ -75,7 +73,7 @@ function PlacedHorizontalStack({ books, w, onBookClick, onBookMouseDown, editMod
               cursor: onBookMouseDown ? 'grab' : onBookClick ? 'pointer' : 'default',
             }}
           >
-            <span style={{ fontFamily: "'Manrope',sans-serif", fontWeight: 600, fontSize: slabFontSize, letterSpacing: slabFontSize < 9 ? '0' : '0.3px', color: b.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '90%', pointerEvents: 'none' }}>{b.title}</span>
+            <SpineLabel axis="horizontal" title={b.title} dims={slabDims} ink={b.ink} />
           </div>
         )
       })}
@@ -109,9 +107,10 @@ function EditableShelfRow({ shelf, shelfIdx, items, dragging, dropTarget, innerR
             <div style={{
               position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
               pointerEvents: 'none', opacity: dragging ? 0 : 1, transition: 'opacity .15s ease',
+              fontSize: SHELF_H,
             }}>
               <span style={{
-                fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: 13,
+                fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: `${SHELF_HINT_FONT_EM}em`,
                 letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(60,25,5,0.35)',
                 border: '2px dashed rgba(60,25,5,0.22)', borderRadius: 10, padding: '8px 18px',
               }}>Drag books & decor here</span>
@@ -242,7 +241,14 @@ function SavedShelfRow({ shelf, items, onBookClick, onEditClick, grabbedBookId, 
                   onClick={onBookClick ? e => onBookClick(it.book, e) : undefined}
                 />
               )}
-              {it.type === 'horizontal-stack' && <PlacedHorizontalStack books={it.books} w={it.slotWidth * SLOT_W} onBookClick={onBookClick} grabbedBookId={grabbedBookId} />}
+              {it.type === 'horizontal-stack' && (
+                <PlacedHorizontalStack
+                  books={it.books}
+                  w={it.slotWidth * SLOT_W}
+                  onBookClick={onBookClick}
+                  grabbedBookId={grabbedBookId}
+                />
+              )}
               {it.type === 'flower'  && <PlacedFlower     w={it.slotWidth * SLOT_W} />}
               {it.type === 'flower2' && <PlacedFlower2    w={it.slotWidth * SLOT_W} />}
               {it.type === 'coffee'  && <PlacedCoffeeCup  w={it.slotWidth * SLOT_W} />}
@@ -263,66 +269,76 @@ function SavedShelfRow({ shelf, items, onBookClick, onEditClick, grabbedBookId, 
 
 // ─── DragGhost ────────────────────────────────────────────────────────────────
 // Shows the dragged item only — Sprout's real arm animates to the cursor position.
+// Children use stage-space dimensions; the inner wrapper applies CSS zoom so spine
+// typography matches in-stage books (same contract as stageRef zoom).
 
 function DragGhost({ dragging, ghostRef, dragRotated, stageSc = 1, shelfH = SHELF_H, isMobile = false }) {
   const isBook  = dragging?.type === 'vertical-book'
   const isStack = dragging?.type === 'horizontal-stack'
-  const slotW  = SLOT_W * stageSc
-  const bookH  = shelfH * stageSc
-  const stackH = 108 * stageSc
+  const sc = stageSc > 0 ? stageSc : 1
+  const stackH = 108
 
-  let gW, gH, tx, ty, content
+  let innerW, innerH, gW, gH, tx, ty, content
   if (isBook && dragRotated) {
-    gW = 5 * slotW; gH = stackH
-    tx = -gW / 2;   ty = -stackH
-    content = <PlacedHorizontalStack books={[dragging.book]} w={gW} />
+    innerW = 5 * SLOT_W
+    innerH = stackH
+    gW = innerW * sc
+    gH = innerH * sc
+    tx = -gW / 2
+    ty = -gH
+    content = <PlacedHorizontalStack books={[dragging.book]} w={innerW} />
   } else if (isBook) {
-    gW = slotW; gH = bookH
-    // Ghost anchor is intentionally different per platform:
-    //   Mobile — the finger is already covering the ghost location, so aligning the
-    //   book's centre to the drop point costs nothing and makes placement predictable.
-    //   Desktop — the mouse cursor needs to see the shelf slot it's aiming at, so the
-    //   ghost is anchored to the LEFT of the cursor (book fully left, cursor uncovered).
+    innerW = SLOT_W
+    innerH = shelfH
+    gW = innerW * sc
+    gH = innerH * sc
     tx = isMobile ? -gW / 2 : -gW
-    ty = -(bookH / 2)
-    content = <PlacedVerticalBook book={dragging.book} w={gW} h={bookH} />
+    ty = -(gH / 2)
+    content = <PlacedVerticalBook book={dragging.book} w={innerW} h={innerH} />
   } else if (isStack && dragRotated) {
     const books = dragging.books ?? []
-    gW = books.length * slotW; gH = bookH
-    tx = -gW / 2; ty = -(bookH / 2)
+    innerW = books.length * SLOT_W
+    innerH = shelfH
+    gW = innerW * sc
+    gH = innerH * sc
+    tx = -gW / 2
+    ty = -(gH / 2)
     content = (
-      <div style={{ display: 'flex', alignItems: 'flex-end', width: gW, height: gH }}>
-        {books.map((b, i) => <PlacedVerticalBook key={i} book={b} w={slotW} h={bookH} />)}
+      <div style={{ display: 'flex', alignItems: 'flex-end', width: innerW, height: innerH }}>
+        {books.map((b, i) => <PlacedVerticalBook key={i} book={b} w={SLOT_W} h={innerH} />)}
       </div>
     )
   } else if (isStack) {
-    gW = (dragging?.slotWidth ?? 1) * slotW; gH = stackH
-    tx = -gW / 2; ty = -stackH
-    content = <PlacedHorizontalStack books={dragging.books} w={gW} />
+    innerW = (dragging?.slotWidth ?? 1) * SLOT_W
+    innerH = stackH
+    gW = innerW * sc
+    gH = innerH * sc
+    tx = -gW / 2
+    ty = -gH
+    content = <PlacedHorizontalStack books={dragging.books} w={innerW} />
   } else {
-    gW = (dragging?.slotWidth ?? 1) * slotW; gH = Math.min(bookH, 120 * stageSc)
-    tx = -gW / 2; ty = -(gH / 2)
+    innerW = (dragging?.slotWidth ?? 1) * SLOT_W
+    innerH = Math.min(shelfH, 120)
+    gW = innerW * sc
+    gH = innerH * sc
+    tx = -gW / 2
+    ty = -(gH / 2)
     content = (
       <>
-        {dragging?.type === 'flower'  && <PlacedFlower    w={gW} />}
-        {dragging?.type === 'flower2' && <PlacedFlower2   w={gW} />}
-        {dragging?.type === 'coffee'  && <PlacedCoffeeCup w={gW} />}
-        {dragging?.type === 'light'   && <PlacedLight     w={gW} />}
-        {dragging?.type === 'clock'   && <PlacedClock     w={gW} />}
+        {dragging?.type === 'flower'  && <PlacedFlower    w={innerW} />}
+        {dragging?.type === 'flower2' && <PlacedFlower2   w={innerW} />}
+        {dragging?.type === 'coffee'  && <PlacedCoffeeCup w={innerW} />}
+        {dragging?.type === 'light'   && <PlacedLight     w={innerW} />}
+        {dragging?.type === 'clock'   && <PlacedClock     w={innerW} />}
       </>
     )
   }
 
-  // Position is driven entirely by imperative setGhostPos calls (translate3d that folds in
-  // the tx/ty centering offset). We deliberately do NOT put transform in the React style
-  // prop — that would let React clobber our per-frame position on re-render.
   const setRef = el => {
     if (!el) return
     ghostRef.current = el
     el.dataset.tx = tx
     el.dataset.ty = ty
-    // If a position was set on a previous mount, re-apply it. Otherwise seed with tx/ty
-    // so a mid-render position update doesn't flash to (0,0).
     const x = parseFloat(el.dataset.x || '0')
     const y = parseFloat(el.dataset.y || '0')
     el.style.transform = `translate3d(${tx + x}px, ${ty + y}px, 0)`
@@ -339,7 +355,9 @@ function DragGhost({ dragging, ghostRef, dragRotated, stageSc = 1, shelfH = SHEL
         transition: 'opacity .12s, width .15s ease, height .15s ease',
       }}
     >
-      {content}
+      <div style={{ width: innerW, height: innerH, zoom: sc }}>
+        {content}
+      </div>
     </div>
   )
 }
@@ -377,8 +395,8 @@ function EditButton({ onClick, visible, onMouseDown }) {
 
 function ShelfLabel({ label, tabBg, tabInk, onEdit = null }) {
   return (
-    <div style={{ position: 'absolute', left: 0, top: 0, zIndex: 20, pointerEvents: 'none', display: 'flex', alignItems: 'flex-start', gap: 6 }}>
-      <div style={{ background: tabBg, color: tabInk, fontFamily: "'Manrope',sans-serif", fontWeight: 600, fontSize: 13, padding: '5px 12px 5px 8px', borderRadius: '0 0 6px 0', boxShadow: '2px 2px 6px rgba(0,0,0,0.18)' }}>
+    <div style={{ position: 'absolute', left: 0, top: 0, zIndex: 20, pointerEvents: 'none', display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: SHELF_H }}>
+      <div style={{ background: tabBg, color: tabInk, fontFamily: "'Manrope',sans-serif", fontWeight: 600, fontSize: `${SHELF_TAB_FONT_EM}em`, padding: '5px 12px 5px 8px', borderRadius: '0 0 6px 0', boxShadow: '2px 2px 6px rgba(0,0,0,0.18)' }}>
         {label}
       </div>
       {/* small in-shelf-scale edit chip, sits right of the tag (mobile edit mode) */}
@@ -390,7 +408,7 @@ function ShelfLabel({ label, tabBg, tabInk, onEdit = null }) {
             pointerEvents: 'auto', marginTop: 3,
             display: 'flex', alignItems: 'center', gap: 3,
             background: '#254CA4', color: '#FDF8EF', border: 'none',
-            borderRadius: 7, padding: '4px 8px', fontSize: 11, fontWeight: 700,
+            borderRadius: 7, padding: '4px 8px', fontSize: `${SHELF_EDIT_FONT_EM}em`, fontWeight: 700,
             fontFamily: "'Manrope',sans-serif", cursor: 'pointer',
             boxShadow: '1px 2px 5px rgba(0,0,0,0.25)',
           }}
@@ -405,9 +423,9 @@ function ShelfLabel({ label, tabBg, tabInk, onEdit = null }) {
 
 // ─── ShelfPlate — gold nameplate above the bookcase ──────────────────────────
 
-function ShelfPlate({ shelfName, username, isMobile = false }) {
+function ShelfPlate({ shelfName, username }) {
   return (
-    <div style={{ position: 'relative', display: 'inline-block' }}>
+    <div style={{ position: 'relative', display: 'inline-block', fontSize: PLATE_EM_BASE }}>
       <div style={{
         background: '#F2EFE8',
         borderRadius: 7,
@@ -415,11 +433,11 @@ function ShelfPlate({ shelfName, username, isMobile = false }) {
         boxShadow: '2px 3px 8px rgba(0,0,0,0.4)',
         minWidth: 130,
       }}>
-        <div style={{ fontSize: 15, fontWeight: 800, color: '#1C1C2E', fontFamily: "'Manrope',sans-serif", letterSpacing: '0.2px' }}>
+        <div style={{ fontSize: `${PLATE_TITLE_FONT_EM}em`, fontWeight: 800, color: '#1C1C2E', fontFamily: "'Manrope',sans-serif", letterSpacing: '0.2px' }}>
           {shelfName || 'My Shelf'}
         </div>
         {username && (
-          <div style={{ fontSize: 10.5, fontWeight: 600, color: '#606078', fontFamily: "'Manrope',sans-serif", marginTop: 2 }}>
+          <div style={{ fontSize: `${PLATE_USER_FONT_EM}em`, fontWeight: 600, color: '#606078', fontFamily: "'Manrope',sans-serif", marginTop: 2 }}>
             made by {username}
           </div>
         )}

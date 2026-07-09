@@ -35,6 +35,46 @@ const LEGACY_HAT_KEYS = {
   party: 'cap',
 }
 
+const MONSTER_EYE_COLORS = [
+  { key: 'dark',   iris: '#1C1C2E', label: 'Dark' },
+  { key: 'brown',  iris: '#4A3728', label: 'Brown' },
+  { key: 'blue',   iris: '#254CA4', label: 'Blue' },
+  { key: 'green',  iris: '#2D7A3A', label: 'Green' },
+  { key: 'purple', iris: '#6B3FA0', label: 'Purple' },
+  { key: 'gold',   iris: '#C89B2C', label: 'Gold' },
+  { key: 'red',    iris: '#B22234', label: 'Red' },
+  { key: 'teal',   iris: '#1A8A8A', label: 'Teal' },
+  { key: 'pink',   iris: '#D4608A', label: 'Pink' },
+]
+
+const MONSTER_EYE_SHAPES = [
+  { key: 'round',  label: 'Round' },
+  { key: 'wide',   label: 'Wide' },
+  { key: 'narrow', label: 'Narrow' },
+  { key: 'dot',    label: 'Dot' },
+  { key: 'sleepy', label: 'Sleepy' },
+]
+
+const MONSTER_ACCESSORIES = [
+  { key: 'none',       label: 'None' },
+  { key: 'round',      label: 'Round glasses' },
+  { key: 'square',     label: 'Square glasses' },
+  { key: 'sunglasses', label: 'Sunglasses' },
+  { key: 'moustache',  label: 'Moustache' },
+  { key: 'beard',      label: 'Beard' },
+  { key: 'eyepatch',   label: 'Eyepatch' },
+]
+
+const MONSTER_LOOK_DEFAULTS = {
+  colorKey: 'green',
+  hatKey: 'none',
+  hatColorKey: 'red',
+  eyeColorKey: 'dark',
+  eyeShapeKey: 'round',
+  accessoryKey: 'none',
+  accessoryColorKey: 'red',
+}
+
 function getMonsterColors(key) {
   return MONSTER_COLORS.find(c => c.key === key) ?? MONSTER_COLORS[0]
 }
@@ -42,6 +82,26 @@ function getMonsterColors(key) {
 function normalizeHatKey(key) {
   const mapped = LEGACY_HAT_KEYS[key] ?? key
   return MONSTER_HATS.some(h => h.key === mapped) ? mapped : 'none'
+}
+
+function normalizeEyeColorKey(key) {
+  return MONSTER_EYE_COLORS.some(c => c.key === key) ? key : MONSTER_LOOK_DEFAULTS.eyeColorKey
+}
+
+function normalizeEyeShapeKey(key) {
+  return MONSTER_EYE_SHAPES.some(s => s.key === key) ? key : MONSTER_LOOK_DEFAULTS.eyeShapeKey
+}
+
+function normalizeAccessoryKey(key) {
+  return MONSTER_ACCESSORIES.some(a => a.key === key) ? key : 'none'
+}
+
+function normalizeAccessoryColorKey(key) {
+  return MONSTER_COLORS.some(c => c.key === key) ? key : MONSTER_LOOK_DEFAULTS.accessoryColorKey
+}
+
+function getEyeColor(key) {
+  return MONSTER_EYE_COLORS.find(c => c.key === key) ?? MONSTER_EYE_COLORS[0]
 }
 
 function getHatColors(hatKey, colorKey) {
@@ -57,12 +117,27 @@ function hatUsesBandColor(hatKey) {
   return HAT_BAND_KEYS.has(hatKey)
 }
 
+function getAccessoryColors(accessoryKey, colorKey) {
+  const pick = getMonsterColors(colorKey)
+  return { primary: pick.body, accent: pick.accent }
+}
+
 export {
   MONSTER_COLORS,
   MONSTER_HATS,
+  MONSTER_EYE_COLORS,
+  MONSTER_EYE_SHAPES,
+  MONSTER_ACCESSORIES,
+  MONSTER_LOOK_DEFAULTS,
   HAT_BAND_KEYS,
   getMonsterColors,
+  getEyeColor,
   normalizeHatKey,
+  normalizeEyeColorKey,
+  normalizeEyeShapeKey,
+  normalizeAccessoryKey,
+  normalizeAccessoryColorKey,
   getHatColors,
+  getAccessoryColors,
   hatUsesBandColor,
 }

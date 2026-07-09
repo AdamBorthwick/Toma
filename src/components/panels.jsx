@@ -1,11 +1,38 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { mapOpenLibraryBook } from '../lib/openLibrary.js'
 import { ROYGBIV } from '../data/shelves.jsx'
-import { IconBooks, IconOpenBook, IconTrash, IconPencil, IconClose, IconCheck, IconLeaf, IconPerson } from './icons.jsx'
+import { IconBooks, IconOpenBook, IconTrash, IconPencil, IconClose, IconCheck, IconLeaf, IconPerson, IconArrowUpRight } from './icons.jsx'
 import { PlacedFlower, PlacedFlower2, PlacedCoffeeCup, PlacedLight, PlacedClock } from './decor.jsx'
 import { TomaHead } from './scene.jsx'
 import { MonsterHatGraphic, TOMA_FACE_VIEWBOX, getHatPickerViewBox } from './hats.jsx'
-import { MONSTER_COLORS, MONSTER_HATS, getMonsterColors } from '../data/monster.jsx'
+import { AccessoryOnlyPreview } from './accessories.jsx'
+import { EyeShapeOnlyPreview } from './eyes.jsx'
+import { MONSTER_COLORS, MONSTER_HATS, MONSTER_EYE_COLORS, MONSTER_EYE_SHAPES, MONSTER_ACCESSORIES, MONSTER_LOOK_DEFAULTS, getMonsterColors } from '../data/monster.jsx'
+import { ScrollFade } from './ScrollFade.jsx'
+import {
+  BottomSheet,
+  SheetHeader,
+  Button,
+  SearchInput,
+  PickerTile,
+  PickerSquare,
+  FieldLabel,
+  DialogBackdrop,
+  DialogCard,
+  DialogTitle,
+  DialogActions,
+  TextInput,
+  IconCloseButton,
+} from './ui/index.js'
+import { colors, font, radii } from '../lib/uiTokens.js'
+import { Z } from '../lib/zIndex.js'
+
+const STYLE_TABS = [
+  { key: 'body', label: 'Body' },
+  { key: 'eyes', label: 'Eyes' },
+  { key: 'hats', label: 'Hats' },
+  { key: 'accessories', label: 'Accessories' },
+]
 
 // ─── SidePanelButtons ─────────────────────────────────────────────────────────
 
@@ -34,17 +61,33 @@ function SidePanelButtons({ editDragging, onBook, onDecor, onShelves, onMonster,
   }, [])
 
   const btnSize = isMobile ? 64 : 88
+  const btnHeight = isMobile ? 62 : 84
   const btnBase = {
-    width: btnSize, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+    width: btnSize, height: btnHeight, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6,
     padding: isMobile ? '10px 6px' : '16px 8px', border: 'none', borderRadius: 16, cursor: 'pointer',
     fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: isMobile ? 12 : 14,
-    transition: 'transform .12s',
+    transition: 'transform .12s', flexShrink: 0,
     ...(isMobile ? { pointerEvents: 'auto' } : {}),
+  }
+  const invDecorWrap = {
+    width: isMobile ? 24 : 28,
+    height: isMobile ? 28 : 32,
+    display: 'flex',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    flexShrink: 0,
+  }
+  const invSpine = {
+    width: isMobile ? 14 : 16,
+    height: isMobile ? 28 : 32,
+    borderRadius: 2,
+    boxShadow: '3px 4px 14px rgba(0,0,0,0.55), -1px 0 0 rgba(0,0,0,0.2)',
   }
   const onHover  = e => { e.currentTarget.style.transform = 'scale(1.06)' }
   const offHover = e => { e.currentTarget.style.transform = '' }
 
-  // Mobile: wraps each footer button so it can slide/collapse as build mode toggles
+  // Mobile: wraps each footer button so it can slide/collapse as edit mode toggles
   const slide = show => ({
     width: show ? btnSize : 0,
     marginRight: show ? 12 : 0,
@@ -85,58 +128,56 @@ function SidePanelButtons({ editDragging, onBook, onDecor, onShelves, onMonster,
         onMouseLeave={() => setInvHover(false)}
         title={topItem.type === 'book' ? topItem.book?.title : topItem.type === 'stack' ? `${stackFirst?.title ?? 'Stack'} +${stackRest}` : topItem.decorType}
         style={{
-          width: isMobile ? 64 : 88, height: isMobile ? 60 : 84,
+          ...btnBase,
           background: 'rgba(253,248,239,0.13)',
           color: 'rgba(253,248,239,0.55)',
-          outline: '2px dashed currentColor',
-          outlineOffset: '5px',
+          border: '2px dashed currentColor',
           transformOrigin: 'center center',
           animation: flashInventory
             ? 'invShake 0.7s ease-in-out 0.6s 2, invPulse 1.2s ease-in-out 0.4s 3'
             : 'none',
-          borderRadius: 10,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          cursor: 'pointer', flexShrink: 0,
+          cursor: 'pointer',
           pointerEvents: 'auto',
+          overflow: 'hidden',
         }}
       >
         <div style={{
           display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4,
-          width: '100%', height: '100%',
+          width: '100%', flex: 1, minHeight: 0, overflow: 'hidden',
           transform: invHover ? 'scale(1.14) translateY(-3px)' : 'scale(1) translateY(0)',
           transition: 'transform 0.22s cubic-bezier(0.34,1.6,0.5,1)',
         }}>
           {topItem.type === 'book' && (<>
             <div style={{
-              width: 16, height: 38, borderRadius: 2,
+              ...invSpine,
               background: topItem.book?.spine ?? '#5A4A3A',
-              boxShadow: '3px 4px 14px rgba(0,0,0,0.55), -1px 0 0 rgba(0,0,0,0.2)',
             }} />
             <div style={{
               fontSize: 8, fontWeight: 700, color: '#FDF8EF', opacity: 0.85,
-              maxWidth: 72, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              maxWidth: btnSize - 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               textAlign: 'center', fontFamily: "'Manrope', sans-serif", lineHeight: 1,
             }}>{topItem.book?.title ?? ''}</div>
           </>)}
           {topItem.type === 'stack' && (<>
             <div style={{
-              width: 16, height: 38, borderRadius: 2,
+              ...invSpine,
               background: stackFirst?.spine ?? '#5A4A3A',
-              boxShadow: '3px 4px 14px rgba(0,0,0,0.55), -1px 0 0 rgba(0,0,0,0.2)',
             }} />
             <div style={{
               fontSize: 8, fontWeight: 700, color: '#FDF8EF', opacity: 0.85,
-              maxWidth: 72, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              maxWidth: btnSize - 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               textAlign: 'center', fontFamily: "'Manrope', sans-serif", lineHeight: 1,
             }}>{(stackFirst?.title ?? 'Stack')}{stackRest > 0 ? ` +${stackRest}` : ''}</div>
           </>)}
           {topItem.type === 'decor' && (() => {
             const dt = topItem.decorType
-            if (dt === 'flower')  return <PlacedFlower    w={26} />
-            if (dt === 'flower2') return <PlacedFlower2   w={26} />
-            if (dt === 'coffee')  return <PlacedCoffeeCup w={26} />
-            if (dt === 'light')   return <PlacedLight     w={26} />
-            if (dt === 'clock')   return <PlacedClock      w={26} />
+            const decorW = isMobile ? 22 : 26
+            const wrap = child => <div style={invDecorWrap}>{child}</div>
+            if (dt === 'flower')  return wrap(<PlacedFlower    w={decorW} />)
+            if (dt === 'flower2') return wrap(<PlacedFlower2   w={decorW} />)
+            if (dt === 'coffee')  return wrap(<PlacedCoffeeCup w={decorW} />)
+            if (dt === 'light')   return wrap(<PlacedLight     w={decorW} />)
+            if (dt === 'clock')   return wrap(<PlacedClock     w={decorW} />)
             return null
           })()}
         </div>
@@ -158,7 +199,7 @@ function SidePanelButtons({ editDragging, onBook, onDecor, onShelves, onMonster,
         {isEditMode
           ? <IconCheck size={22} color="#1C1C2E" />
           : <IconPencil size={22} color="#FDF8EF" />}
-        <span>{isEditMode ? 'Done' : 'Build'}</span>
+        <span>{isEditMode ? 'Done' : 'Edit'}</span>
       </button>
     </div>
   ) : null
@@ -229,8 +270,6 @@ function SidePanelButtons({ editDragging, onBook, onDecor, onShelves, onMonster,
         <div className="mobile-footer-scroll" style={{
           display: 'flex', flexDirection: 'row', alignItems: 'flex-end',
           overflowX: 'auto', maxWidth: '100%',
-          WebkitOverflowScrolling: 'touch',
-          overscrollBehaviorX: 'contain',
           padding: '2px 4px',
           pointerEvents: 'auto',
         }}>
@@ -330,9 +369,14 @@ function BookPreviewModal({ book, isSelected, onToggle, onClose }) {
             <div style={{ fontWeight: 700, fontSize: 14, color: '#1C1C2E', lineHeight: 1.25 }}>{book.title}</div>
             <div style={{ fontSize: 12, color: '#606078' }}>{book.author}</div>
             {book.category && <div style={{ fontSize: 10, color: '#8888A0', textTransform: 'uppercase', letterSpacing: 0.9, marginBottom: 2 }}>{book.category}</div>}
-            <div style={{ fontSize: 12, color: '#1C1C2E', lineHeight: 1.65, overflowY: 'auto', flex: 1 }}>
+            <ScrollFade
+              axis="y"
+              fadeColor={colors.surface}
+              style={{ flex: 1, minHeight: 0 }}
+              scrollStyle={{ fontSize: 12, color: '#1C1C2E', lineHeight: 1.65 }}
+            >
               {full.description ?? 'No description available.'}
-            </div>
+            </ScrollFade>
           </div>
 
           {/* Spine shadow */}
@@ -462,45 +506,28 @@ function BookAddPanel({ isOpen, selectedBooks, onToggleBook, onConfirm, onClose,
   const hasQuery = query.trim().length >= 2
 
   return (
-    <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', zIndex: 62 }}
-      onMouseDown={onClose}
-    >
-      <div
-        className={isMobile ? 'sheet-max-viewport' : undefined}
-        style={isMobile
-          ? { background: '#FDF8EF', borderRadius: '18px 18px 0 0', padding: '20px 16px', width: '100%', display: 'flex', flexDirection: 'column', boxShadow: '0 -4px 24px rgba(0,0,0,0.2)', fontFamily: "'Manrope',sans-serif", overflowY: 'auto' }
-          : { background: '#FDF8EF', borderRadius: 18, padding: 28, maxWidth: 440, width: '92%', maxHeight: '84vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 40px rgba(0,0,0,0.28)', fontFamily: "'Manrope',sans-serif" }}
-        onMouseDown={e => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-          <div style={{ fontSize: 20, fontWeight: 700, color: '#1C1C2E' }}>Add Books</div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', display: 'flex', alignItems: 'center' }}><IconClose size={16} color="#606078" /></button>
-        </div>
+    <BottomSheet isOpen={isOpen} onClose={onClose} isMobile={isMobile}>
+        <SheetHeader title="Add Books" onClose={onClose} isMobile={isMobile} marginBottom={16} />
 
-        <div style={{ fontSize: 13, color: '#606078', marginBottom: 10 }}>
+        <div style={{ fontSize: 13, color: colors.muted, marginBottom: 10, flexShrink: 0 }}>
           {count === 0 ? 'Select up to 5 books' : `${count} of 5 books selected`}
         </div>
 
-        {/* Search bar */}
-        <input
+        <SearchInput
           type="text"
           placeholder="Search by title or author…"
           value={query}
           onChange={e => setQuery(e.target.value)}
           autoFocus
-          style={{
-            marginBottom: 12, padding: '9px 14px', borderRadius: 10,
-            border: '2px solid #D0D0DC', background: 'white',
-            fontFamily: "'Manrope',sans-serif", fontSize: 14, color: '#1C1C2E',
-            outline: 'none', width: '100%', boxSizing: 'border-box',
-            WebkitAppearance: 'none', appearance: 'none',
-          }}
+          style={{ marginBottom: 12, flexShrink: 0 }}
         />
 
         {/* Book list / states */}
-        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <ScrollFade
+          axis="y"
+          style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}
+          scrollStyle={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+        >
           {!hasQuery && (
             <div style={{ textAlign: 'center', color: '#9898B0', fontSize: 14, padding: '32px 0 16px' }}>
               <div style={{ marginBottom: 10 }}><IconOpenBook size={36} color="#9898B0" /></div>
@@ -520,23 +547,15 @@ function BookAddPanel({ isOpen, selectedBooks, onToggleBook, onConfirm, onClose,
             const sel = selectedBooks.some(s => s.id === b.id)
             const maxed = !sel && count >= 5
             return (
-              <button key={b.id} onClick={() => !maxed && onToggleBook(b)} style={{
-                background: sel ? '#d4f0be' : 'white',
-                border: `2px solid ${sel ? '#5a9e3f' : '#D0D0DC'}`,
-                borderRadius: 10, padding: '10px 14px',
-                cursor: maxed ? 'not-allowed' : 'pointer',
-                display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left',
-                fontFamily: "'Manrope',sans-serif", opacity: maxed ? 0.4 : 1,
-                transition: 'all .12s', width: '100%', flexShrink: 0,
-              }}>
+              <PickerTile key={b.id} selected={sel} disabled={maxed} onClick={() => !maxed && onToggleBook(b)}>
                 <div style={{ width: 36, height: 52, flexShrink: 0, borderRadius: 4, overflow: 'hidden', background: b.spine, boxShadow: '1px 1px 4px rgba(0,0,0,0.18)' }}>
                   {b.thumbnail && (
                     <img src={b.thumbnail} alt="" crossOrigin={b.thumbnail.startsWith('http') ? 'anonymous' : undefined} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                   )}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14, color: '#1C1C2E', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.title}</div>
-                  <div style={{ fontSize: 12, color: '#606078', marginTop: 1 }}>{b.author}</div>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: colors.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.title}</div>
+                  <div style={{ fontSize: 12, color: colors.muted, marginTop: 1 }}>{b.author}</div>
                   {(b.year || b.category) && (
                     <div style={{ fontSize: 11, color: '#c9b89a', marginTop: 2 }}>
                       {[b.year, b.category].filter(Boolean).join(' • ')}
@@ -548,38 +567,29 @@ function BookAddPanel({ isOpen, selectedBooks, onToggleBook, onConfirm, onClose,
                     </div>
                   )}
                 </div>
-                {sel && <div style={{ flexShrink: 0 }}><IconCheck size={18} color="#5a9e3f" /></div>}
-              </button>
+                {sel && <div style={{ flexShrink: 0 }}><IconCheck size={18} color={colors.success} /></div>}
+              </PickerTile>
             )
           })}
           {loadingMore && (
             <div style={{ textAlign: 'center', color: '#606078', fontSize: 13, padding: '12px 0' }}>Loading…</div>
           )}
           {!loading && !loadingMore && loadMoreCount < 3 && results.length > 0 && totalFound > results.length && (
-            <button onClick={handleLoadMore} style={{
-              width: '100%', padding: '10px 0', marginTop: 4,
-              background: 'none', border: '2px dashed #D0D0DC', borderRadius: 10,
-              color: '#606078', fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: 14,
-              cursor: 'pointer', transition: 'border-color .12s, color .12s',
-            }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = '#254CA4'; e.currentTarget.style.color = '#254CA4' }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = '#D0D0DC'; e.currentTarget.style.color = '#606078' }}
-            >View more</button>
+            <Button variant="dashed" fullWidth onClick={handleLoadMore} style={{ marginTop: 4 }}>
+              View more
+            </Button>
           )}
-        </div>
+        </ScrollFade>
 
-        {/* Confirm */}
-        <button onClick={canPlace ? onConfirm : undefined} style={{
-          marginTop: 16, width: '100%', padding: '12px 0',
-          background: canPlace ? '#254CA4' : 'rgba(37,76,164,0.35)', color: '#FDF8EF',
-          border: 'none', borderRadius: 10, cursor: canPlace ? 'pointer' : 'default',
-          fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: 15,
-          transition: 'background .15s',
-        }}>
-          {count === 0 ? 'Select a book to continue' : `Add ${count} book${count === 1 ? '' : 's'} ↗`}
-        </button>
-      </div>
-    </div>
+        <Button fullWidth disabled={!canPlace} onClick={canPlace ? onConfirm : undefined} style={{ marginTop: 16, flexShrink: 0 }}>
+          {count === 0 ? 'Select a book to continue' : (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {`Add ${count} book${count === 1 ? '' : 's'}`}
+              <IconArrowUpRight size={14} color="currentColor" />
+            </span>
+          )}
+        </Button>
+    </BottomSheet>
   )
 }
 
@@ -606,57 +616,50 @@ function DecorAddPanel({ isOpen, onSelect, onClose, isMobile = false }) {
     { type: 'clock',   label: 'Clock',   preview: <div style={decorPreviewStyle}><PlacedClock     w={44} /></div> },
   ]
   return (
-    <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', zIndex: 62 }}
-      onMouseDown={onClose}
+    <BottomSheet
+      isOpen={isOpen}
+      onClose={onClose}
+      isMobile={isMobile}
+      sheetStyle={!isMobile ? { maxWidth: 480, padding: 20 } : undefined}
     >
-      <div
-        style={isMobile
-          ? { background: '#FDF8EF', borderRadius: '18px 18px 0 0', padding: '20px 16px', width: '100%', boxShadow: '0 -4px 24px rgba(0,0,0,0.2)', fontFamily: "'Manrope',sans-serif" }
-          : { background: '#FDF8EF', borderRadius: 18, padding: 20, maxWidth: 480, width: '92%', boxShadow: '0 8px 40px rgba(0,0,0,0.28)', fontFamily: "'Manrope',sans-serif" }}
-        onMouseDown={e => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-          <div style={{ fontSize: 18, fontWeight: 700, color: '#1C1C2E' }}>Add Decoration</div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', display: 'flex', alignItems: 'center' }}><IconClose size={16} color="#606078" /></button>
-        </div>
+      <SheetHeader title="Add Decoration" onClose={onClose} isMobile={isMobile} marginBottom={16} />
 
-        {/* Cards — grid wraps automatically as more items are added */}
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(4, 1fr)' : 'repeat(5, 1fr)', gap: 6 }}>
           {items.map(({ type, label, preview }) => {
             const sel = picked === type
             return (
               <button key={type} onClick={() => setPicked(sel ? null : type)} style={{
                 padding: '10px 4px 8px',
-                background: sel ? '#d4f0be' : '#fff',
-                border: `2px solid ${sel ? '#5a9e3f' : '#D0D0DC'}`,
-                borderRadius: 12, cursor: 'pointer', overflow: 'visible',
+                background: sel ? colors.successBg : '#fff',
+                border: `2px solid ${sel ? colors.success : colors.border}`,
+                borderRadius: radii.lg, cursor: 'pointer', overflow: 'visible',
                 display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
-                fontFamily: "'Manrope',sans-serif", fontWeight: 600, fontSize: 11, color: '#1C1C2E',
+                fontFamily: font, fontWeight: 600, fontSize: 11, color: colors.text,
                 transition: 'background .12s, border-color .12s, box-shadow .12s',
                 boxShadow: sel ? '0 3px 12px rgba(90,158,63,0.2)' : '0 1px 4px rgba(0,0,0,0.07)',
               }}>
                 {preview}
                 {label}
-                <div style={{ visibility: sel ? 'visible' : 'hidden' }}><IconCheck size={14} color="#5a9e3f" /></div>
+                <div style={{ visibility: sel ? 'visible' : 'hidden' }}><IconCheck size={14} color={colors.success} /></div>
               </button>
             )
           })}
         </div>
 
-        {/* Place button */}
-        <button onClick={picked ? () => { const p = picked; setPicked(null); onSelect(p) } : undefined} style={{
-          marginTop: 20, width: '100%', padding: '12px 0',
-          background: picked ? '#254CA4' : 'rgba(37,76,164,0.35)', color: '#FDF8EF',
-          border: 'none', borderRadius: 10, cursor: picked ? 'pointer' : 'default',
-          fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: 15,
-          transition: 'background .15s',
-        }}>
-          {picked ? `Place ${items.find(i => i.type === picked)?.label ?? ''} ↗` : 'Select a decoration'}
-        </button>
-      </div>
-    </div>
+        <Button
+          fullWidth
+          disabled={!picked}
+          onClick={picked ? () => { const p = picked; setPicked(null); onSelect(p) } : undefined}
+          style={{ marginTop: 20 }}
+        >
+          {picked ? (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {`Place ${items.find(i => i.type === picked)?.label ?? ''}`}
+              <IconArrowUpRight size={14} color="currentColor" />
+            </span>
+          ) : 'Select a decoration'}
+        </Button>
+    </BottomSheet>
   )
 }
 
@@ -675,6 +678,10 @@ function TomaAppearancePreview({
   hatColorKey = 'red',
   hatSwapFromColor = 'red',
   hatSwapToColor = 'red',
+  eyeColorKey = 'dark',
+  eyeShapeKey = 'round',
+  accessory = 'none',
+  accessoryColorKey = 'red',
   onHatSwapComplete,
 }) {
   const headW = compact ? 120 : 140
@@ -817,6 +824,10 @@ function TomaAppearancePreview({
               accentColor={accentColor}
               hat={headHat}
               hatColorKey={headHatColor}
+              eyeColorKey={eyeColorKey}
+              eyeShapeKey={eyeShapeKey}
+              accessory={accessory}
+              accessoryColorKey={accessoryColorKey}
               mouthReactGen={mouthReactGen}
             />
           </div>
@@ -879,17 +890,6 @@ function HatScrollRow({ children, bleed = 0 }) {
   })
   const draggedRef = useRef(false)
   const [dragging, setDragging] = useState(false)
-  const [fade, setFade] = useState({ left: false, right: false })
-
-  const updateFade = useCallback(() => {
-    const el = rowRef.current
-    if (!el) return
-    const max = Math.max(0, el.scrollWidth - el.clientWidth)
-    setFade({
-      left: el.scrollLeft > 4,
-      right: el.scrollLeft < max - 4,
-    })
-  }, [])
 
   useEffect(() => {
     const el = rowRef.current
@@ -899,19 +899,10 @@ function HatScrollRow({ children, bleed = 0 }) {
       if (delta === 0) return
       el.scrollLeft += delta
       e.preventDefault()
-      updateFade()
     }
     el.addEventListener('wheel', onWheel, { passive: false })
-    el.addEventListener('scroll', updateFade, { passive: true })
-    const ro = new ResizeObserver(updateFade)
-    ro.observe(el)
-    updateFade()
-    return () => {
-      el.removeEventListener('wheel', onWheel)
-      el.removeEventListener('scroll', updateFade)
-      ro.disconnect()
-    }
-  }, [updateFade])
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [])
 
   function startDrag(el, e) {
     dragRef.current.active = true
@@ -930,81 +921,72 @@ function HatScrollRow({ children, bleed = 0 }) {
     drag.pointerId = null
     setDragging(false)
     if (el?.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId)
-    updateFade()
   }
 
   return (
-    <div
-      className="style-hat-bleed"
-      style={{
-        marginLeft: -bleed,
-        marginRight: -bleed,
-        width: bleed ? `calc(100% + ${bleed * 2}px)` : '100%',
-      }}
-    >
-      <div
-        className="style-hat-fade-wrap"
-        style={{
-          '--fade-left-opacity': fade.left ? 1 : 0,
-          '--fade-right-opacity': fade.right ? 1 : 0,
+    <div className="style-hat-bleed" style={{
+      marginLeft: -bleed,
+      marginRight: -bleed,
+      width: bleed ? `calc(100% + ${bleed * 2}px)` : '100%',
+    }}>
+      <ScrollFade
+        ref={rowRef}
+        axis="x"
+        fadeColor={colors.surface}
+        scrollClassName={dragging ? 'is-dragging' : ''}
+        style={{ flex: 'none', minHeight: 'auto' }}
+        scrollStyle={{ flex: 'none', minHeight: 'auto' }}
+        onPointerDown={(e) => {
+          if (e.pointerType === 'mouse' && e.button !== 0) return
+          const el = rowRef.current
+          if (!el) return
+          draggedRef.current = false
+          dragRef.current = {
+            active: false,
+            pending: true,
+            startX: e.clientX,
+            scrollLeft: el.scrollLeft,
+            pointerId: e.pointerId,
+          }
+        }}
+        onPointerMove={(e) => {
+          const drag = dragRef.current
+          if (!drag.pending && !drag.active) return
+          if (drag.pointerId !== e.pointerId) return
+          const el = rowRef.current
+          if (!el) return
+          const dx = e.clientX - drag.startX
+          if (!drag.active) {
+            if (Math.abs(dx) < 8) return
+            startDrag(el, e)
+          }
+          el.scrollLeft = drag.scrollLeft - dx
+        }}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        onClickCapture={(e) => {
+          if (!draggedRef.current) return
+          e.preventDefault()
+          e.stopPropagation()
+          draggedRef.current = false
         }}
       >
-        <div
-          ref={rowRef}
-          className={`style-hat-scroll${dragging ? ' is-dragging' : ''}`}
-          onPointerDown={(e) => {
-            if (e.pointerType === 'mouse' && e.button !== 0) return
-            const el = rowRef.current
-            if (!el) return
-            draggedRef.current = false
-            dragRef.current = {
-              active: false,
-              pending: true,
-              startX: e.clientX,
-              scrollLeft: el.scrollLeft,
-              pointerId: e.pointerId,
-            }
-          }}
-          onPointerMove={(e) => {
-            const drag = dragRef.current
-            if (!drag.pending && !drag.active) return
-            if (drag.pointerId !== e.pointerId) return
-            const el = rowRef.current
-            if (!el) return
-            const dx = e.clientX - drag.startX
-            if (!drag.active) {
-              if (Math.abs(dx) < 8) return
-              startDrag(el, e)
-            }
-            el.scrollLeft = drag.scrollLeft - dx
-            updateFade()
-          }}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
-          onClickCapture={(e) => {
-            if (!draggedRef.current) return
-            e.preventDefault()
-            e.stopPropagation()
-            draggedRef.current = false
-          }}
-        >
-          {children}
-        </div>
-      </div>
+        {children}
+      </ScrollFade>
     </div>
   )
 }
 
-function ColorSwatchRow({ value, onChange, disabled = false }) {
+function ColorSwatchRow({ value, onChange, disabled = false, colors: palette = MONSTER_COLORS, getFill = c => c.body, getRing = c => c.accent }) {
   return (
     <div style={{
       display: 'grid',
-      gridTemplateColumns: 'repeat(9, 1fr)',
-      gap: 6,
+      gridTemplateColumns: `repeat(${palette.length}, 1fr)`,
+      gap: 8,
       width: '100%',
       marginBottom: 20,
     }}>
-      {MONSTER_COLORS.map(c => (
+      {palette.map(c => (
         <button
           key={c.key}
           onClick={() => !disabled && onChange(c.key)}
@@ -1014,12 +996,12 @@ function ColorSwatchRow({ value, onChange, disabled = false }) {
             width: '100%',
             aspectRatio: '1',
             borderRadius: '50%',
-            background: c.body,
-            border: value === c.key ? `3px solid ${c.accent}` : '3px solid transparent',
+            background: getFill(c),
+            border: value === c.key ? `3px solid ${getRing(c)}` : '3px solid transparent',
             cursor: disabled ? 'default' : 'pointer',
             boxSizing: 'border-box',
             opacity: disabled ? 0.35 : 1,
-            boxShadow: value === c.key ? `0 0 0 2px ${c.body}` : 'inset 0 0 0 1px rgba(0,0,0,0.12)',
+            boxShadow: value === c.key ? `0 0 0 2px ${getFill(c)}` : 'inset 0 0 0 1px rgba(0,0,0,0.12)',
             transition: 'border .12s, box-shadow .12s, opacity .12s',
           }}
         />
@@ -1028,10 +1010,50 @@ function ColorSwatchRow({ value, onChange, disabled = false }) {
   )
 }
 
-function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, onSave, onClose, isMobile = false }) {
+function StyleTabBar({ activeTab, onChange }) {
+  return (
+    <div style={{
+      display: 'flex',
+      gap: 2,
+      marginBottom: 16,
+      borderBottom: '2px solid #E8E8F0',
+    }}>
+      {STYLE_TABS.map(tab => {
+        const sel = activeTab === tab.key
+        return (
+          <button
+            key={tab.key}
+            onClick={() => onChange(tab.key)}
+            style={{
+              flex: 1,
+              padding: '10px 4px',
+              background: 'none',
+              border: 'none',
+              borderBottom: sel ? '2px solid #254CA4' : '2px solid transparent',
+              color: sel ? '#254CA4' : '#606078',
+              fontFamily: "'Manrope',sans-serif",
+              fontWeight: 700,
+              fontSize: 12,
+              cursor: 'pointer',
+              marginBottom: -2,
+              transition: 'color .12s, border-color .12s',
+            }}
+          >{tab.label}</button>
+        )
+      })}
+    </div>
+  )
+}
+
+function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, eyeColorKey, eyeShapeKey, accessoryKey, accessoryColorKey, onSave, onClose, isMobile = false }) {
   const [draftColor, setDraftColor] = useState(colorKey)
   const [draftHat, setDraftHat] = useState(hatKey)
   const [draftHatColor, setDraftHatColor] = useState(hatColorKey)
+  const [draftEyeColor, setDraftEyeColor] = useState(eyeColorKey)
+  const [draftEyeShape, setDraftEyeShape] = useState(eyeShapeKey)
+  const [draftAccessory, setDraftAccessory] = useState(accessoryKey)
+  const [draftAccessoryColor, setDraftAccessoryColor] = useState(accessoryColorKey)
+  const [activeTab, setActiveTab] = useState('body')
   const [shakeGen, setShakeGen] = useState(0)
   const [mouthReactGen, setMouthReactGen] = useState(0)
   const [hatSwapGen, setHatSwapGen] = useState(0)
@@ -1044,6 +1066,9 @@ function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, onSave, 
   const colorReadyRef = useRef(false)
   const hatReadyRef = useRef(false)
   const hatColorReadyRef = useRef(false)
+  const eyeReadyRef = useRef(false)
+  const eyeShapeReadyRef = useRef(false)
+  const accessoryReadyRef = useRef(false)
   const visualHatRef = useRef(hatKey)
   const visualHatColorRef = useRef(hatColorKey)
 
@@ -1059,11 +1084,19 @@ function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, onSave, 
       setDraftColor(colorKey)
       setDraftHat(hatKey)
       setDraftHatColor(hatColorKey)
+      setDraftEyeColor(eyeColorKey)
+      setDraftEyeShape(eyeShapeKey)
+      setDraftAccessory(accessoryKey)
+      setDraftAccessoryColor(accessoryColorKey)
+      setActiveTab('body')
       setSettledHat(hatKey)
       setSettledHatColor(hatColorKey)
       colorReadyRef.current = false
       hatReadyRef.current = false
       hatColorReadyRef.current = false
+      eyeReadyRef.current = false
+      eyeShapeReadyRef.current = false
+      accessoryReadyRef.current = false
       visualHatRef.current = hatKey
       visualHatColorRef.current = hatColorKey
       setShakeGen(0)
@@ -1073,7 +1106,7 @@ function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, onSave, 
       setHatSwapTo(hatKey)
       setHatSwapToColor(hatColorKey)
     }
-  }, [isOpen, colorKey, hatKey, hatColorKey])
+  }, [isOpen, colorKey, hatKey, hatColorKey, eyeColorKey, eyeShapeKey, accessoryKey, accessoryColorKey])
 
   useEffect(() => {
     if (!isOpen) return
@@ -1109,28 +1142,78 @@ function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, onSave, 
     setSettledHatColor(draftHatColor)
   }, [draftHatColor, isOpen])
 
+  useEffect(() => {
+    if (!isOpen) return
+    if (!eyeReadyRef.current) {
+      eyeReadyRef.current = true
+      return
+    }
+    setShakeGen(g => g + 1)
+  }, [draftEyeColor, isOpen])
+
+  useEffect(() => {
+    if (!isOpen) return
+    if (!eyeShapeReadyRef.current) {
+      eyeShapeReadyRef.current = true
+      return
+    }
+    setShakeGen(g => g + 1)
+  }, [draftEyeShape, isOpen])
+
+  useEffect(() => {
+    if (!isOpen) return
+    if (!accessoryReadyRef.current) {
+      accessoryReadyRef.current = true
+      return
+    }
+    setMouthReactGen(g => g + 1)
+  }, [draftAccessory, isOpen])
+
+  function handleDismiss() {
+    onSave(draftColor, draftHat, draftHatColor, draftEyeColor, draftEyeShape, draftAccessory, draftAccessoryColor)
+    onClose()
+  }
+
+  function handleReturnToDefault() {
+    const d = MONSTER_LOOK_DEFAULTS
+    setDraftColor(d.colorKey)
+    setDraftHat(d.hatKey)
+    setDraftHatColor(d.hatColorKey)
+    setDraftEyeColor(d.eyeColorKey)
+    setDraftEyeShape(d.eyeShapeKey)
+    setDraftAccessory(d.accessoryKey)
+    setDraftAccessoryColor(d.accessoryColorKey)
+    onSave(d.colorKey, d.hatKey, d.hatColorKey, d.eyeColorKey, d.eyeShapeKey, d.accessoryKey, d.accessoryColorKey)
+  }
+
   if (!isOpen) return null
 
   const preview = getMonsterColors(draftColor)
+  const SheetTag = isMobile ? ScrollFade : 'div'
 
   return (
     <div
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', zIndex: 62 }}
-      onMouseDown={onClose}
+      onMouseDown={handleDismiss}
     >
-      <div
-        className={isMobile ? 'sheet-max-viewport' : undefined}
+      <SheetTag
+        {...(isMobile ? {
+          variant: 'self',
+          axis: 'y',
+          fadeColor: colors.surface,
+          className: 'sheet-max-viewport',
+        } : {})}
         style={isMobile
-          ? { background: '#FDF8EF', borderRadius: '18px 18px 0 0', padding: '20px 16px', width: '100%', minWidth: 0, boxShadow: '0 -4px 24px rgba(0,0,0,0.2)', fontFamily: "'Manrope',sans-serif", overflowX: 'visible', overflowY: 'auto' }
+          ? { background: '#FDF8EF', borderRadius: '18px 18px 0 0', padding: '20px 16px', width: '100%', minWidth: 0, boxShadow: '0 -4px 24px rgba(0,0,0,0.2)', fontFamily: "'Manrope',sans-serif", overflowX: 'visible' }
           : { background: '#FDF8EF', borderRadius: 18, padding: '24px 28px', maxWidth: 440, width: '92%', minWidth: 0, boxShadow: '0 8px 40px rgba(0,0,0,0.28)', fontFamily: "'Manrope',sans-serif", overflowX: 'visible' }}
         onMouseDown={e => e.stopPropagation()}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <div>
             <div style={{ fontSize: isMobile ? 20 : 22, fontWeight: 700, color: '#1C1C2E' }}>Style</div>
-            <div style={{ fontSize: 13, color: '#606078', marginTop: 4 }}>Pick a color and hat for your monster.</div>
+            <div style={{ fontSize: 13, color: '#606078', marginTop: 4 }}>Customize your monster&apos;s look.</div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', display: 'flex', alignItems: 'center' }}><IconClose size={16} color="#606078" /></button>
+          <IconCloseButton onClick={handleDismiss} />
         </div>
 
         <div style={{
@@ -1163,59 +1246,124 @@ function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, onSave, 
               hatSwapTo={hatSwapTo}
               hatSwapFromColor={hatSwapFromColor}
               hatSwapToColor={hatSwapToColor}
+              eyeColorKey={draftEyeColor}
+              eyeShapeKey={draftEyeShape}
+              accessory={draftAccessory}
+              accessoryColorKey={draftAccessoryColor}
               onHatSwapComplete={handleHatSwapComplete}
             />
           </div>
         </div>
 
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#606078', marginBottom: 10, letterSpacing: '0.04em' }}>BODY COLOR</div>
-        <ColorSwatchRow value={draftColor} onChange={setDraftColor} />
+        <StyleTabBar activeTab={activeTab} onChange={setActiveTab} />
 
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#606078', marginBottom: 10, letterSpacing: '0.04em' }}>HAT</div>
-        <HatScrollRow bleed={isMobile ? 16 : 28}>
-          {MONSTER_HATS.map(h => {
-            const sel = draftHat === h.key
-            return (
-              <button
-                key={h.key}
-                onClick={() => setDraftHat(h.key)}
-                title={h.label}
-                aria-label={h.label}
-                style={{
-                  width: 76, minWidth: 76, padding: '8px 6px',
-                  background: sel ? '#e8eef9' : '#fff',
-                  border: `2px solid ${sel ? '#254CA4' : '#D0D0DC'}`,
-                  borderRadius: 12, cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  transition: 'background .12s, border-color .12s, box-shadow .12s',
-                  boxShadow: sel ? '0 3px 12px rgba(37,76,164,0.16)' : '0 1px 4px rgba(0,0,0,0.06)',
-                }}
-              >
-                <div style={{ width: '100%', height: 56, pointerEvents: 'none', overflow: 'hidden' }}>
-                  <HatOnlyPreview hat={h.key} hatColorKey={sel ? draftHatColor : 'red'} />
-                </div>
-              </button>
-            )
-          })}
-        </HatScrollRow>
+        {activeTab === 'body' && (
+          <>
+            <FieldLabel style={{ marginBottom: 10 }}>Body color</FieldLabel>
+            <ColorSwatchRow value={draftColor} onChange={setDraftColor} />
+          </>
+        )}
 
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#606078', marginBottom: 10, letterSpacing: '0.04em' }}>HAT COLOR</div>
-        <ColorSwatchRow
-          value={draftHatColor}
-          onChange={setDraftHatColor}
-          disabled={draftHat === 'none'}
-        />
+        {activeTab === 'eyes' && (
+          <>
+            <FieldLabel style={{ marginBottom: 10 }}>Eye shape</FieldLabel>
+            <HatScrollRow bleed={isMobile ? 16 : 28}>
+              {MONSTER_EYE_SHAPES.map(s => {
+                const sel = draftEyeShape === s.key
+                return (
+                  <PickerSquare
+                    key={s.key}
+                    selected={sel}
+                    onClick={() => setDraftEyeShape(s.key)}
+                    title={s.label}
+                  >
+                    <div style={{ width: '100%', height: 56, pointerEvents: 'none', overflow: 'hidden' }}>
+                      <EyeShapeOnlyPreview eyeShape={s.key} eyeColorKey={sel ? draftEyeColor : 'dark'} />
+                    </div>
+                  </PickerSquare>
+                )
+              })}
+            </HatScrollRow>
 
-        <button
-          onClick={() => { onSave(draftColor, draftHat, draftHatColor); onClose() }}
-          style={{
-            width: '100%', padding: '12px 0',
-            background: '#254CA4', color: '#FDF8EF',
-            border: 'none', borderRadius: 10, cursor: 'pointer',
-            fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: 15,
-          }}
-        >Save look</button>
-      </div>
+            <FieldLabel style={{ marginBottom: 10 }}>Eye color</FieldLabel>
+            <ColorSwatchRow
+              value={draftEyeColor}
+              onChange={setDraftEyeColor}
+              colors={MONSTER_EYE_COLORS}
+              getFill={c => c.iris}
+              getRing={c => c.iris}
+            />
+          </>
+        )}
+
+        {activeTab === 'hats' && (
+          <>
+            <FieldLabel style={{ marginBottom: 10 }}>Hat</FieldLabel>
+            <HatScrollRow bleed={isMobile ? 16 : 28}>
+              {MONSTER_HATS.map(h => {
+                const sel = draftHat === h.key
+                return (
+                  <PickerSquare
+                    key={h.key}
+                    selected={sel}
+                    onClick={() => setDraftHat(h.key)}
+                    title={h.label}
+                  >
+                    <div style={{ width: '100%', height: 56, pointerEvents: 'none', overflow: 'hidden' }}>
+                      <HatOnlyPreview hat={h.key} hatColorKey={sel ? draftHatColor : 'red'} />
+                    </div>
+                  </PickerSquare>
+                )
+              })}
+            </HatScrollRow>
+
+            <FieldLabel style={{ marginBottom: 10 }}>Hat color</FieldLabel>
+            <ColorSwatchRow
+              value={draftHatColor}
+              onChange={setDraftHatColor}
+              disabled={draftHat === 'none'}
+            />
+          </>
+        )}
+
+        {activeTab === 'accessories' && (
+          <>
+            <FieldLabel style={{ marginBottom: 10 }}>Accessory</FieldLabel>
+            <HatScrollRow bleed={isMobile ? 16 : 28}>
+              {MONSTER_ACCESSORIES.map(a => {
+                const sel = draftAccessory === a.key
+                return (
+                  <PickerSquare
+                    key={a.key}
+                    selected={sel}
+                    onClick={() => setDraftAccessory(a.key)}
+                    title={a.label}
+                  >
+                    <div style={{ width: '100%', height: 56, pointerEvents: 'none', overflow: 'hidden' }}>
+                      <AccessoryOnlyPreview accessory={a.key} accessoryColorKey={sel ? draftAccessoryColor : 'red'} />
+                    </div>
+                  </PickerSquare>
+                )
+              })}
+            </HatScrollRow>
+
+            <FieldLabel style={{ marginBottom: 10 }}>Accessory color</FieldLabel>
+            <ColorSwatchRow
+              value={draftAccessoryColor}
+              onChange={setDraftAccessoryColor}
+              disabled={draftAccessory === 'none'}
+            />
+          </>
+        )}
+
+        <Button variant="ghost" fullWidth size="sm" onClick={handleReturnToDefault} style={{ marginBottom: 10 }}>
+          Return to default
+        </Button>
+
+        <Button fullWidth onClick={handleDismiss}>
+          Done
+        </Button>
+      </SheetTag>
     </div>
   )
 }
@@ -1316,7 +1464,7 @@ function ShelfListModal({ shelfConfigs, getColors, shelfName, username, onEditPl
       <div
         className={isMobile ? 'sheet-max-viewport' : undefined}
         style={isMobile
-          ? { background: '#FDF8EF', borderRadius: '18px 18px 0 0', padding: '20px 16px', width: '100%', display: 'flex', flexDirection: 'column', boxShadow: '0 -4px 24px rgba(0,0,0,0.2)', fontFamily: "'Manrope',sans-serif", overflowY: isDragging ? 'visible' : 'auto' }
+          ? { background: '#FDF8EF', borderRadius: '18px 18px 0 0', padding: '20px 16px', width: '100%', display: 'flex', flexDirection: 'column', minHeight: 0, boxShadow: '0 -4px 24px rgba(0,0,0,0.2)', fontFamily: "'Manrope',sans-serif", overflow: isDragging ? 'visible' : 'hidden' }
           : {
               background: '#FDF8EF', borderRadius: 20, padding: '28px 32px 24px',
               width: 'min(520px, 92vw)', maxHeight: 'min(84vh, 720px)',
@@ -1326,17 +1474,12 @@ function ShelfListModal({ shelfConfigs, getColors, shelfName, username, onEditPl
             }}
         onMouseDown={e => e.stopPropagation()}
       >
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: isMobile ? 12 : 18, flexShrink: 0 }}>
-          <div>
-            <div style={{ fontSize: isMobile ? 20 : 24, fontWeight: 700, color: '#1C1C2E', lineHeight: 1.1 }}>Edit bookcase</div>
-            {!isMobile && (
-              <div style={{ fontSize: 14, color: '#666680', marginTop: 6 }}>
-                Rename shelves, reorder rows, and update your collection label.
-              </div>
-            )}
-          </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', display: 'flex', alignItems: 'center', flexShrink: 0 }}><IconClose size={16} color="#606078" /></button>
-        </div>
+        <SheetHeader
+          title="Edit bookcase"
+          subtitle={!isMobile ? 'Rename shelves, reorder rows, and update your collection label.' : undefined}
+          onClose={onClose}
+          isMobile={isMobile}
+        />
 
         {/* Shelf name + username — tap to open the plate edit modal */}
         <button
@@ -1370,16 +1513,18 @@ function ShelfListModal({ shelfConfigs, getColors, shelfName, username, onEditPl
           {isMobile ? 'Tap a shelf to rename · drag the handle to reorder' : 'Click a shelf to rename · drag the handle to reorder'}
         </div>
 
-        <div
+        <ScrollFade
           ref={listRef}
-          style={{
-            position: 'relative', display: 'flex', flexDirection: 'column',
-            flex: 1, minHeight: 0,
-            overflow: isDragging ? 'visible' : undefined,
-            overflowY: isDragging ? 'visible' : (isMobile ? 'visible' : 'auto'),
+          axis="y"
+          disabled={isDragging}
+          style={{ flex: 1, minHeight: 0, margin: '0 -10px' }}
+          scrollStyle={{
+            position: 'relative',
+            display: 'flex',
+            flexDirection: 'column',
+            padding: '4px 10px',
             overflowX: 'visible',
-            // Horizontal bleed room so drag shadows/borders aren't clipped by the scroller.
-            margin: '0 -10px', padding: '4px 10px',
+            ...(isDragging ? { overflow: 'visible', overflowY: 'visible' } : null),
           }}
         >
           {shelfConfigs.map((cfg, idx) => {
@@ -1451,23 +1596,21 @@ function ShelfListModal({ shelfConfigs, getColors, shelfName, username, onEditPl
               </div>
             )
           })}
-        </div>
+        </ScrollFade>
 
-        <button
+        <Button
+          variant={isMobile ? 'dashed' : 'dashedPrimary'}
+          hoverFill={!isMobile}
+          fullWidth
           onClick={onAddShelf}
           style={{
-            marginTop: isMobile ? 6 : 14, width: '100%', padding: isMobile ? '12px 0' : '13px 0',
-            background: isMobile ? 'none' : 'transparent',
-            border: isMobile ? '2px dashed #D0D0DC' : '2px solid #254CA4',
-            borderRadius: 10,
-            color: isMobile ? '#606078' : '#254CA4',
-            fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: 14,
-            cursor: 'pointer', flexShrink: 0,
-            transition: 'background 0.15s ease, color 0.15s ease',
+            marginTop: isMobile ? 10 : 14,
+            flexShrink: 0,
+            ...(isMobile ? { padding: '12px 0 calc(12px + env(safe-area-inset-bottom, 0px))' } : null),
           }}
-          onMouseEnter={e => { if (!isMobile) { e.currentTarget.style.background = '#254CA4'; e.currentTarget.style.color = '#FDF8EF' } }}
-          onMouseLeave={e => { if (!isMobile) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#254CA4' } }}
-        >+ Add Shelf</button>
+        >
+          + Add Shelf
+        </Button>
       </div>
     </div>
   )
@@ -1482,39 +1625,30 @@ function ShelfPlateEditModal({ shelfName, username, onSave, onClose }) {
   const nameRef = useRef(null)
   useEffect(() => { nameRef.current?.focus(); nameRef.current?.select() }, [])
   return (
-    <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(25,36,61,0.6)', zIndex: 9000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-      onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}
-    >
-      <div style={{ background: '#FDF8EF', borderRadius: 20, padding: '28px 32px 24px', width: 'min(340px, 92vw)', boxShadow: '0 16px 48px rgba(0,0,0,0.3)', fontFamily: "'Manrope',sans-serif" }}>
-        <div style={{ fontSize: 22, fontWeight: 700, color: '#1C1C2E', marginBottom: 22 }}>Edit label</div>
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#606078', marginBottom: 8, letterSpacing: '0.04em' }}>YOUR NAME</div>
-        <input
+    <DialogBackdrop onClose={e => { if (e.target === e.currentTarget) onClose() }}>
+      <DialogCard>
+        <DialogTitle style={{ marginBottom: 22 }}>Edit label</DialogTitle>
+        <FieldLabel>Your name</FieldLabel>
+        <TextInput
           ref={nameRef}
           value={newUsername}
           onChange={e => setNewUsername(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') onSave(newShelfName.trim() || shelfName, newUsername.trim()) }}
-          style={{ width: '100%', boxSizing: 'border-box', border: '2px solid #D0D0DC', borderRadius: 10, padding: '9px 13px', fontSize: 16, fontFamily: "'Manrope',sans-serif", fontWeight: 600, background: 'white', color: '#1C1C2E', outline: 'none', marginBottom: 18 }}
+          style={{ marginBottom: 18 }}
         />
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#606078', marginBottom: 8, letterSpacing: '0.04em' }}>SHELF NAME</div>
-        <input
+        <FieldLabel>Shelf name</FieldLabel>
+        <TextInput
           value={newShelfName}
           onChange={e => setNewShelfName(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') onSave(newShelfName.trim() || shelfName, newUsername.trim()) }}
-          style={{ width: '100%', boxSizing: 'border-box', border: '2px solid #D0D0DC', borderRadius: 10, padding: '9px 13px', fontSize: 16, fontFamily: "'Manrope',sans-serif", fontWeight: 600, background: 'white', color: '#1C1C2E', outline: 'none', marginBottom: 28 }}
+          style={{ marginBottom: 28 }}
         />
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button
-            onClick={() => onSave(newShelfName.trim() || shelfName, newUsername.trim())}
-            style={{ flex: 1, background: '#254CA4', border: 'none', borderRadius: 10, padding: '11px 0', fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: 15, color: '#FDF8EF', cursor: 'pointer' }}
-          >Save</button>
-          <button
-            onClick={onClose}
-            style={{ flex: 1, background: 'transparent', border: '2px solid #D0D0DC', borderRadius: 10, padding: '11px 0', fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: 15, color: '#606078', cursor: 'pointer' }}
-          >Cancel</button>
-        </div>
-      </div>
-    </div>
+        <DialogActions>
+          <Button size="dialog" fullWidth onClick={() => onSave(newShelfName.trim() || shelfName, newUsername.trim())}>Save</Button>
+          <Button variant="ghost" size="dialog" fullWidth onClick={onClose}>Cancel</Button>
+        </DialogActions>
+      </DialogCard>
+    </DialogBackdrop>
   )
 }
 
@@ -1528,23 +1662,20 @@ function ShelfEditModal({ cfg, onSave, onDelete, onClose, canDelete = true, show
   useEffect(() => { inputRef.current?.focus(); inputRef.current?.select() }, [])
 
   return (
-    <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(25,36,61,0.6)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-      onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}
-    >
-      <div style={{ background: '#FDF8EF', borderRadius: 20, padding: '28px 32px 24px', width: 'min(340px, 92vw)', boxShadow: '0 16px 48px rgba(0,0,0,0.3)', fontFamily: "'Manrope',sans-serif" }}>
-        <div style={{ fontSize: 22, fontWeight: 700, color: '#1C1C2E', marginBottom: 22 }}>{title}</div>
+    <DialogBackdrop zIndex={Z.shelfEdit} onClose={e => { if (e.target === e.currentTarget) onClose() }}>
+      <DialogCard>
+        <DialogTitle style={{ marginBottom: 22 }}>{title}</DialogTitle>
 
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#606078', marginBottom: 8, letterSpacing: '0.04em' }}>SHELF NAME</div>
-        <input
+        <FieldLabel>Shelf name</FieldLabel>
+        <TextInput
           ref={inputRef}
           value={label}
           onChange={e => setLabel(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') onSave(label.trim() || cfg.label, colorKey) }}
-          style={{ width: '100%', boxSizing: 'border-box', border: '2px solid #D0D0DC', borderRadius: 10, padding: '9px 13px', fontSize: 16, fontFamily: "'Manrope',sans-serif", fontWeight: 600, background: 'white', color: '#1C1C2E', outline: 'none', marginBottom: 22, WebkitAppearance: 'none', appearance: 'none' }}
+          style={{ marginBottom: 22 }}
         />
 
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#606078', marginBottom: 12, letterSpacing: '0.04em' }}>SHELF COLOR</div>
+        <FieldLabel style={{ marginBottom: 12 }}>Shelf color</FieldLabel>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 8, marginBottom: 28 }}>
           {ROYGBIV.map(c => (
             <div
@@ -1561,31 +1692,31 @@ function ShelfEditModal({ cfg, onSave, onDelete, onClose, canDelete = true, show
           ))}
         </div>
 
-        <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
-          <button
-            onClick={() => onSave(label.trim() || cfg.label, colorKey)}
-            style={{ flex: 1, background: '#254CA4', border: 'none', borderRadius: 10, padding: '11px 0', fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: 15, color: '#FDF8EF', cursor: 'pointer' }}
-          >Save</button>
-          <button
-            onClick={onClose}
-            style={{ flex: 1, background: '#FDF8EF', border: '2px solid #254CA4', borderRadius: 10, padding: '11px 0', fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: 15, color: '#254CA4', cursor: 'pointer' }}
-          >Cancel</button>
-        </div>
+        <DialogActions style={{ marginBottom: 12 }}>
+          <Button size="dialog" fullWidth onClick={() => onSave(label.trim() || cfg.label, colorKey)}>Save</Button>
+          <Button variant="secondaryPrimary" size="dialog" fullWidth onClick={onClose}>Cancel</Button>
+        </DialogActions>
         {showDelete && (
           <>
-            <button
+            <Button
+              variant="destructive"
+              fullWidth
+              size="sm"
+              disabled={!canDelete}
               onClick={canDelete ? onDelete : () => setShowMinWarning(true)}
-              style={{ width: '100%', background: 'none', border: `2px solid ${canDelete ? '#c0392b' : '#C4C4D4'}`, borderRadius: 10, padding: '9px 0', fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: 14, color: canDelete ? '#c0392b' : '#9090A8', cursor: canDelete ? 'pointer' : 'default' }}
-            >Delete Shelf</button>
+              style={{ color: canDelete ? colors.destructive : '#9090A8', borderColor: canDelete ? colors.destructive : colors.borderAlt }}
+            >
+              Delete Shelf
+            </Button>
             {showMinWarning && (
-              <div style={{ marginTop: 8, fontSize: 13, fontFamily: "'Manrope',sans-serif", fontWeight: 600, color: '#b05a30', textAlign: 'center' }}>
+              <div style={{ marginTop: 8, fontSize: 13, fontWeight: 600, color: '#b05a30', textAlign: 'center' }}>
                 A minimum of 2 shelves is required.
               </div>
             )}
           </>
         )}
-      </div>
-    </div>
+      </DialogCard>
+    </DialogBackdrop>
   )
 }
 

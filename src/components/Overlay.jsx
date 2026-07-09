@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { saveReview, deleteReview, addInventoryBook } from '../db.js'
 import { getShelfColors, findShelf } from '../data/shelves.jsx'
 import { IconPencil, IconClose, IconStar } from './icons.jsx'
+import { ScrollFade } from './ScrollFade.jsx'
+import { colors } from '../lib/uiTokens.js'
 
 function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId, reviewsRef, isViewOnly, ownerName, viewerUserId, isMobile = false, monsterBodyColor = '#72FF5D' }) {
   // step 0 = below screen  |  step 1 = portrait risen  |  step 2 = spread open
@@ -226,7 +228,14 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
       )}
       {reviewMode === 'view' && (reviewText || reviewRating > 0) && (
         <>
-          <div style={{ flex: 1, fontFamily: "'Manrope', sans-serif", fontSize: 12, lineHeight: 1.65, color: '#2C2C3E', overflowY: 'auto', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{reviewText}</div>
+          <ScrollFade
+            axis="y"
+            fadeColor="#FDF8EF"
+            style={{ flex: 1, minHeight: 0 }}
+            scrollStyle={{ fontFamily: "'Manrope', sans-serif", fontSize: 12, lineHeight: 1.65, color: '#2C2C3E', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}
+          >
+            {reviewText}
+          </ScrollFade>
           <div style={{ display: 'flex', gap: 4 }}>
             {[1,2,3,4,5].map(s => <IconStar key={s} size={isMobile ? 26 : 22} filled={s <= reviewRating} />)}
           </div>
@@ -235,7 +244,11 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
       {reviewMode === 'edit' && (
         <>
           {isInteractive
-            ? <textarea value={draftText} onChange={e => setDraftText(e.target.value.slice(0, 600))} placeholder="Write your thoughts…" maxLength={600} autoFocus style={{ flex: 1, fontFamily: "'Manrope', sans-serif", fontSize: 12, lineHeight: 1.65, color: '#2C2C3E', background: 'transparent', border: 'none', outline: 'none', resize: 'none', padding: 0, wordBreak: 'break-word' }} />
+            ? (
+              <ScrollFade axis="y" fadeColor="#FDF8EF" style={{ flex: 1, minHeight: 0 }}>
+                <textarea value={draftText} onChange={e => setDraftText(e.target.value.slice(0, 600))} placeholder="Write your thoughts…" maxLength={600} autoFocus style={{ width: '100%', height: '100%', minHeight: 120, fontFamily: "'Manrope', sans-serif", fontSize: 12, lineHeight: 1.65, color: '#2C2C3E', background: 'transparent', border: 'none', outline: 'none', resize: 'none', padding: 0, boxSizing: 'border-box', wordBreak: 'break-word' }} />
+              </ScrollFade>
+            )
             : <div style={{ flex: 1, fontFamily: "'Manrope', sans-serif", fontSize: 12, lineHeight: 1.65, color: '#2C2C3E', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{draftText || <span style={{ color: '#8888A0', fontStyle: 'italic' }}>Write your thoughts…</span>}</div>
           }
           <div style={{ display: 'flex', gap: 0, margin: '2px -4px' }}>
@@ -322,7 +335,13 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
             transition: isMobile ? 'opacity .3s ease' : (bookOpen ? 'opacity 0s' : 'opacity 0s .84s'),
           }}>
             {isMobile ? <>
-              {overlayPage === 1 && <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto' }}>
+              {overlayPage === 1 && (
+                <ScrollFade
+                  variant="self"
+                  axis="y"
+                  fadeColor="#FDF8EF"
+                  style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 10 }}
+                >
                 <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: 28, fontWeight: 700, lineHeight: 1.12, color: '#1C1C2E' }}>{selected.title}</div>
                 <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: 16, fontWeight: 700, color: accent }}>{selected.author}</div>
                 {yearGenre ? <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: 13, color: '#606078' }}>{yearGenre}</div> : null}
@@ -347,7 +366,8 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
                 )}
                 {bodyLabel && <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', color: '#606078', marginTop: 8 }}>{bodyLabel}</div>}
                 <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: 13, lineHeight: 1.65, color: bodyText ? '#2C2C3E' : '#8888A0', fontStyle: bodyText ? 'normal' : 'italic' }}>{bodyText || 'No description provided.'}</div>
-              </div>}
+                </ScrollFade>
+              )}
               {overlayPage === 2 && reviewPageContent(!isViewOnly)}
               {overlayPage === 3 && linksPageContent}
             </> : <>
@@ -416,8 +436,14 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
                 )}
               </>}
               {displayPage === 2 && <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {bodyLabel && <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', color: '#606078' }}>{bodyLabel}</div>}
-                <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: 12, lineHeight: 1.65, color: bodyText ? '#2C2C3E' : '#8888A0', fontStyle: bodyText ? 'normal' : 'italic', overflow: 'hidden' }}>{bodyText || 'No description provided.'}</div>
+                {bodyLabel && <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', color: colors.muted }}>{bodyLabel}</div>}
+                <ScrollFade
+                  axis="y"
+                  style={{ flex: 1, minHeight: 0 }}
+                  scrollStyle={{ fontFamily: "'Manrope', sans-serif", fontSize: 12, lineHeight: 1.65, color: bodyText ? colors.textBody : colors.placeholder, fontStyle: bodyText ? 'normal' : 'italic' }}
+                >
+                  {bodyText || 'No description provided.'}
+                </ScrollFade>
               </div>}
             </div>
           </div>
@@ -464,8 +490,14 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
                     {shelfLabel ? <div style={{ fontFamily: "'Manrope', sans-serif", fontStyle: 'italic', fontSize: 13, color: '#8888A0', marginTop: 4 }}>From the {shelfLabel} shelf</div> : null}
                   </>}
                   {backPage === 2 && <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {bodyLabel && <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', color: '#606078' }}>{bodyLabel}</div>}
-                    <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: 12, lineHeight: 1.65, color: bodyText ? '#2C2C3E' : '#8888A0', fontStyle: bodyText ? 'normal' : 'italic', overflow: 'hidden' }}>{bodyText || 'No description provided.'}</div>
+                    {bodyLabel && <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', color: colors.muted }}>{bodyLabel}</div>}
+                    <ScrollFade
+                      axis="y"
+                      style={{ flex: 1, minHeight: 0 }}
+                      scrollStyle={{ fontFamily: "'Manrope', sans-serif", fontSize: 12, lineHeight: 1.65, color: bodyText ? colors.textBody : colors.placeholder, fontStyle: bodyText ? 'normal' : 'italic' }}
+                    >
+                      {bodyText || 'No description provided.'}
+                    </ScrollFade>
                   </div>}
                 </div>
               </div>

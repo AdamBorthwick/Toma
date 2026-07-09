@@ -92,6 +92,27 @@ function hatTransform(spec) {
   return `translate(${tx} ${ty}) scale(${scaleX} ${scaleY})`
 }
 
+function getHatOverhangAboveHeadPx(hatKey, headRenderH = 230, faceVbH = 331) {
+  if (!hatKey || hatKey === 'none') return 0
+  const spec = HAT_SPECS[hatKey]
+  if (!spec) return 0
+  const { scaleY } = hatScales(spec)
+  const hatTopInViewBox = spec.anchorY - spec.h * scaleY
+  if (hatTopInViewBox >= 0) return 0
+  return Math.ceil(-hatTopInViewBox * (headRenderH / faceVbH))
+}
+
+// How far below the shelf lip the head should start so tall hats aren't sliced in on rise.
+function getHeadIntroStartBelow(hatKey, baseBelow = 380, hiddenPad = 80) {
+  return baseBelow + getHatOverhangAboveHeadPx(hatKey) + hiddenPad
+}
+
+function getHeadIntroDuration(hatKey, endTop = 108, startTop = null, baseMs = 780, msPerPx = 0.5) {
+  const start = startTop ?? getHeadIntroStartBelow(hatKey)
+  const travel = Math.abs(start - endTop)
+  return Math.round(baseMs + travel * msPerPx)
+}
+
 function getHatPickerViewBox(hat) {
   if (!hat || hat === 'none') return '0 0 48 32'
   const spec = HAT_SPECS[hat]
@@ -129,4 +150,4 @@ function MonsterHatGraphic({ hat, hatColorKey = 'red' }) {
   return <HatGraphic hat={hat} primary={primary} accent={accent} band={band} bandAccent={bandAccent} />
 }
 
-export { MonsterHatGraphic, HAT_SPECS, TOMA_FACE_VIEWBOX, TOMA_HEAD_VIEWBOX, getHatPickerViewBox }
+export { MonsterHatGraphic, HAT_SPECS, TOMA_FACE_VIEWBOX, TOMA_HEAD_VIEWBOX, getHatPickerViewBox, getHatOverhangAboveHeadPx, getHeadIntroStartBelow, getHeadIntroDuration }

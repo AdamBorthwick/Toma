@@ -1,8 +1,9 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
 import { resolveUserId, loadShelfByUserId, loadShelfByShareId, loadReviews, persistShelf, getShareId, setUsername as saveUsername, getUsername, getMonsterLook, setMonsterLook, loadInventory, addInventoryBook, addInventoryStack, addInventoryDecor, removeInventoryItem, DbError } from './db.js'
-import { SLOT_W, NUM_SLOTS, SHELF_H, BOOKCASE_LEFT, BOOKCASE_WIDTH, isRotatableDragType } from './lib/layout.js'
+import { DialogBackdrop, DialogCard, DialogTitle, DialogDescription, DialogActions, FieldLabel, TextInput, Button } from './components/ui/index.js'
+import { SLOT_W, NUM_SLOTS, SHELF_H, BOOKCASE_LEFT, BOOKCASE_WIDTH, isRotatableDragType, PLATE_EM_BASE, SURFACE_LABEL_FONT_EM } from './lib/layout.js'
 import { MOBILE_ZOOMED_IN_MONSTER_BIAS } from './lib/mobileZoom.js'
-import { setGhostPos, slotsOverlap, findFreeZone, computeArm, computeFingerPaths, titleT } from './lib/geometry.js'
+import { setGhostPos, slotsOverlap, findFreeZone, computeArm, computeFingerPaths, titleT, DEFAULT_ARM_TARGET } from './lib/geometry.js'
 import { computeMobileScale, computeStageScale } from './lib/scale.js'
 import { mobileShelfScrollBounds } from './lib/scroll.js'
 import { fetchDefaultShelfData } from './lib/openLibrary.js'
@@ -10,13 +11,26 @@ import { SHELVES, getShelfColors, reconstructShelf } from './data/shelves.jsx'
 import { getMonsterColors } from './data/monster.jsx'
 import { IconTrash, IconRotate } from './components/icons.jsx'
 import { CaveBackground, PoofSmoke, TomaHead } from './components/scene.jsx'
+import { getHeadIntroDuration, getHatOverhangAboveHeadPx } from './components/hats.jsx'
 import { EditableShelfRow, SavedShelfRow, DragGhost, ShelfPlate, ShelfRow } from './components/shelfRows.jsx'
+import { SpineLabel } from './components/SpineLabel.jsx'
+import { getSpineDims } from './lib/spineTypography.js'
 import { SidePanelButtons, BookAddPanel, DecorAddPanel, MonsterCustomizeModal, ShelfListModal, ShelfPlateEditModal, ShelfEditModal } from './components/panels.jsx'
 import { Overlay } from './components/Overlay.jsx'
 import { TitleScreen } from './components/TitleScreen.jsx'
+import { StageScaleProvider } from './context/StageScale.jsx'
 import { OnboardingOverlay } from './components/OnboardingOverlay.jsx'
 
-// ─── App ───────────────────────────────────────────────────────────────────────
+// Head emergence after title — rises from viewport center to the top-of-shelf pose.
+const HEAD_INTRO_END_TOP = 108
+const HEAD_RENDER_H = 230
+
+// Linger below the shelf, then ease up so tall hats clear the top board before showing.
+function headIntroEmergenceEase(p) {
+  if (p <= 0.4) return 0.08 * (p / 0.4)
+  const q = (p - 0.4) / 0.6
+  return 0.08 + 0.92 * (1 - Math.pow(1 - q, 2.6))
+}
 
 export default function App() {
   const [showTitle, setShowTitle] = useState(() => {
@@ -30,7 +44,7 @@ export default function App() {
   // Note: cursor-tracking arm follows displayTarget directly (RAF-throttled from the
   // window pointermove listener below). No intermediate `target` state — an earlier
   // version had one but nothing read it, so it just triggered extra re-renders.
-  const [displayTarget, setDisplayTarget] = useState(null)
+  const [displayTarget, setDisplayTarget] = useState(DEFAULT_ARM_TARGET)
   const [selected, setSelected] = useState(null)
   const [openPhase, setOpenPhase] = useState('closed')
   const [headDucking, setHeadDucking] = useState(false)
@@ -112,6 +126,10 @@ export default function App() {
   const [monsterColorKey, setMonsterColorKey] = useState('green')
   const [monsterHatKey, setMonsterHatKey]     = useState('none')
   const [monsterHatColorKey, setMonsterHatColorKey] = useState('red')
+  const [monsterEyeColorKey, setMonsterEyeColorKey] = useState('dark')
+  const [monsterEyeShapeKey, setMonsterEyeShapeKey] = useState('round')
+  const [monsterAccessoryKey, setMonsterAccessoryKey] = useState('none')
+  const [monsterAccessoryColorKey, setMonsterAccessoryColorKey] = useState('red')
   const [showMonsterPanel, setShowMonsterPanel] = useState(false)
   const [showPlateEdit, setShowPlateEdit]   = useState(false)
   const [saveStatus, setSaveStatus]         = useState('')  // 'saving' | 'saved' | 'error' | ''
@@ -228,6 +246,21 @@ export default function App() {
     return m ? m.rectZoom : 1
   }
 
+  // Bookcase-layer `top` so the head's visual center sits at the viewport vertical center.
+  function headIntroViewportCenterTop(headH = HEAD_RENDER_H) {
+    const scrollEl = scrollRef.current
+    const viewportCenterY = scrollEl
+      ? scrollEl.getBoundingClientRect().top + scrollEl.clientHeight / 2
+      : window.innerHeight / 2
+    const m = stageMetrics()
+    const z = scaleRef.current > 0 ? scaleRef.current : 1
+    const stageTop = m ? m.top : (scrollEl ? scrollEl.getBoundingClientRect().top : 0)
+    const stageSy = m ? m.sy : z
+    const stageY = (viewportCenterY - stageTop) / stageSy
+    const bookcaseShift = bookcaseShiftRef.current
+    return Math.round(stageY - bookcaseShift - headH * 0.5)
+  }
+
   // getBoundingClientRect of an element inside the zoomed stage, normalized to visual
   // space so it can be compared against event clientX/clientY.
   function visualRect(el) {
@@ -278,28 +311,115 @@ export default function App() {
   function trackArmTarget(pos) {
     const from = displayTargetRef.current
     const dy = from ? Math.abs(pos.y - from.y) : 0
-    // While the page is scrolling, glide the arm/head instead of chasing every frame.
-    if (pageScrollingRef.current) {
-      lerpArmTarget(pos, mobileArmSmoothTau() + 0.2)
-      return
-    }
     // Large jumps (tap on a distant shelf) glide; continuous finger-follow stays snappy.
     const tau = dy > 400 ? 0.5 : dy > 200 ? 0.4 : dy > 80 ? 0.24 : mobileArmSmoothTau()
     lerpArmTarget(pos, tau)
   }
 
-  // Desktop vertical scroll: shelf rows move under a fixed cursor, so snap the arm each
-  // frame — lerping here left the hand pointing at the previous row when you clicked.
-  function panMonsterOnDesktopScroll(pos) {
-    snapArmTarget(pos)
+  // Refine glide destination without shortening tau — quick tap-release on a book
+  // would otherwise snap because finger≈book center yields a tiny dy.
+  function refineArmGoal(pos) {
+    armGoalRef.current = pos
+    lastMousePosRef.current = pos
   }
+
+  const armGlideWaitRef = useRef(null)
+  function cancelArmGlideWait() {
+    if (armGlideWaitRef.current) {
+      cancelAnimationFrame(armGlideWaitRef.current)
+      armGlideWaitRef.current = null
+    }
+  }
+  function waitForArmGlideThen(fn) {
+    cancelArmGlideWait()
+    function poll() {
+      if (armLerpRafRef.current) {
+        armGlideWaitRef.current = requestAnimationFrame(poll)
+        return
+      }
+      armGlideWaitRef.current = null
+      fn()
+    }
+    armGlideWaitRef.current = requestAnimationFrame(poll)
+  }
+
+  // Viewport aim for scroll panning — last pointer, or screen center if none yet.
+  function scrollAimFromViewport() {
+    const anchor = viewportCenterAnchor()
+    const vm = viewportMouseRef.current
+    const cx = vm?.x ?? anchor?.clientX
+    const cy = vm?.y ?? anchor?.clientY
+    if (cx == null || cy == null) return null
+    return clientToStage(cx, cy, true)
+  }
+
+  // Snap arm/head to the live viewport aim while the page scrolls.
+  function syncScrollAim() {
+    if (introBlockRef.current) return
+    if (selected || grabPhaseRef.current || editDraggingRef.current) return
+    const aim = scrollAimFromViewport()
+    if (!aim) return
+    const floor = shelfBookcaseBottom()
+    const maxX = isMobileRef.current ? 850 : 786
+    const next = {
+      x: Math.max(270, Math.min(maxX, aim.x)),
+      y: Math.max(196, Math.min(floor + 36, aim.y)),
+    }
+    armGoalRef.current = next
+    lastMousePosRef.current = next
+    if (isMobileRef.current) {
+      trackArmTarget(next)
+      return
+    }
+    displayTargetRef.current = next
+    setDisplayTarget(next)
+  }
+
+  // Edge auto-pan — scroll only when the finger is near a screen edge (browse + edit).
+  function applyMobileEdgePan(clientX, clientY) {
+    if (!isMobileRef.current || !mobileScrollNeededRef.current) return false
+    const scr = scrollRef.current
+    if (!scr) return false
+
+    const EDGE = 64
+    const MAX_V = 14
+    const speed = depth => Math.ceil(MAX_V * Math.min(1, depth / EDGE))
+    let panned = false
+
+    if (zoomedInRef.current) {
+      const sc = scaleRef.current
+      const { min, max } = mobileShelfScrollBounds(scr, sc)
+      if (clientX < EDGE) {
+        scr.scrollLeft = Math.max(min, scr.scrollLeft - speed(EDGE - clientX))
+        panned = true
+      } else if (clientX > window.innerWidth - EDGE) {
+        scr.scrollLeft = Math.min(max, scr.scrollLeft + speed(clientX - (window.innerWidth - EDGE)))
+        panned = true
+      }
+    }
+
+    if (clientY < EDGE) {
+      scr.scrollTop = Math.max(0, scr.scrollTop - speed(EDGE - clientY))
+      panned = true
+    } else if (clientY > window.innerHeight - EDGE) {
+      scr.scrollTop = Math.min(maxScrollTopAt(scaleRef.current), scr.scrollTop + speed(clientY - (window.innerHeight - EDGE)))
+      panned = true
+    }
+
+    if (panned) syncScrollAimRef.current()
+    return panned
+  }
+
+  const applyMobileEdgePanRef = useRef(applyMobileEdgePan)
+  applyMobileEdgePanRef.current = applyMobileEdgePan
+
+  const syncScrollAimRef = useRef(syncScrollAim)
+  syncScrollAimRef.current = syncScrollAim
 
   const clientToStageRef = useRef(clientToStage)
   clientToStageRef.current = clientToStage
   const trackArmTargetRef = useRef(trackArmTarget)
   trackArmTargetRef.current = trackArmTarget
-  const panMonsterOnDesktopScrollRef = useRef(panMonsterOnDesktopScroll)
-  panMonsterOnDesktopScrollRef.current = panMonsterOnDesktopScroll
 
   // Raw viewport→stage mapping without the hand-aim offset or floor clamp — used for
   // zoom anchors, where clamping would make the anchor disagree with the actual scroll.
@@ -509,11 +629,19 @@ export default function App() {
     return zoomedInRef.current ? 0.16 : 0.13
   }
 
+  function cancelArmLerp() {
+    if (armLerpRafRef.current) {
+      cancelAnimationFrame(armLerpRafRef.current)
+      armLerpRafRef.current = null
+      armLerpLastTsRef.current = null
+    }
+  }
+
   const [scrollUnlocked, setScrollUnlocked] = useState(false)
   const GAP_VH = 80
   const closeTimer = useRef(null)
   const retractRef = useRef(null)
-  const displayTargetRef = useRef(null)
+  const displayTargetRef = useRef(DEFAULT_ARM_TARGET)
   const introBlockRef    = useRef(false)
   const leaveTimerRef = useRef(null)
   const grabRafRef = useRef(null)
@@ -537,7 +665,9 @@ export default function App() {
   const lastMousePosRef = useRef(null)    // last known cursor in stage-local coords
   const viewportMouseRef = useRef(null)   // last known cursor in raw viewport coords
   const pageScrollingRef = useRef(false) // true while the page scrollport is moving
-  const lastDesktopScrollTopRef = useRef(0)
+  const mobileScrollNeededRef = useRef(false)
+  const mobileTouchActiveRef = useRef(false)
+  const lastScrollPosRef = useRef({ top: 0, left: 0 })
   const bookcaseBottomRef = useRef(0)     // stage-coord bookcase floor, mirrors render-derived bookcaseBottom
   const armGoalRef = useRef(null)         // unified lerp goal for arm tracking
   const armLerpRafRef = useRef(null)
@@ -547,7 +677,7 @@ export default function App() {
   const isMobileRef = useRef(false)
   // headGoalRef mirrors the arm-derived head pose so retreat/intro handlers can snap
   // to the current target without waiting for the next render.
-  const headGoalRef = useRef({ left: 630, top: 200, rotate: 0 })
+  const headGoalRef = useRef({ left: 580, top: 108, rotate: -5 })
 
   // Glide the arm toward a goal instead of snapping. Used for scroll, mobile touch
   // (browse + edit), and desktop mouse stays direct/snappy.
@@ -599,11 +729,7 @@ export default function App() {
   // Snap the arm to a goal immediately — used when picking up a book so the hand
   // doesn't lerp from a stale hover/scroll position.
   function snapArmTarget(goal) {
-    if (armLerpRafRef.current) {
-      cancelAnimationFrame(armLerpRafRef.current)
-      armLerpRafRef.current = null
-      armLerpLastTsRef.current = null
-    }
+    cancelArmLerp()
     armGoalRef.current = goal
     displayTargetRef.current = { ...goal }
     setDisplayTarget({ ...goal })
@@ -612,6 +738,17 @@ export default function App() {
 
   useEffect(() => { isMobileRef.current = isMobile }, [isMobile])
   useEffect(() => { zoomedInRef.current = zoomedIn }, [zoomedIn])
+
+  useLayoutEffect(() => {
+    if (!isMobile) {
+      mobileScrollNeededRef.current = false
+      return
+    }
+    const needed = maxScrollTopAt(scaleRef.current) > 1
+    mobileScrollNeededRef.current = needed
+    const el = scrollRef.current
+    if (el && !needed) el.scrollTop = 0
+  }, [isMobile, scale, bookcaseRevealed, shelfConfigs.length, showTitle])
 
   // Stage zoom + bookcase-layer shift are applied imperatively on every commit (no dep
   // array): during the zoom animation scaleRef is driven per-frame, and any React
@@ -801,97 +938,75 @@ export default function App() {
     }
   }, [isMobile, bookcaseRevealed, zoomedIn])
 
-  // Desktop vertical scroll — dedicated handler pans the monster to the cursor's new
-  // stage-local position (lerped). Kept separate from mousemove and mobile scroll logic.
+  // User scroll — native scroll on all platforms; arm/head re-aim each frame while scrolling.
   useEffect(() => {
-    if (isMobile) return
     const el = scrollRef.current
     if (!el) return
-    let panRaf = null
+
     let scrollIdleTimer = null
+    let syncRaf = null
+    let aimLoopRaf = null
+
+    function startScrollAimLoop() {
+      if (aimLoopRaf) return
+      function tick() {
+        syncScrollAimRef.current()
+        if (pageScrollingRef.current) {
+          aimLoopRaf = requestAnimationFrame(tick)
+        } else {
+          aimLoopRaf = null
+        }
+      }
+      aimLoopRaf = requestAnimationFrame(tick)
+    }
 
     function markPageScrolling() {
       pageScrollingRef.current = true
+      startScrollAimLoop()
       clearTimeout(scrollIdleTimer)
       scrollIdleTimer = setTimeout(() => {
         pageScrollingRef.current = false
-      }, 220)
+        startScrollAimLoop()
+      }, 180)
     }
 
-    function panMonsterToScrollAim() {
-      if (introBlockRef.current) return
-      if (selected || grabPhaseRef.current || editDraggingRef.current) return
-      const vm = viewportMouseRef.current
-      if (!vm) return
-      const newPos = clientToStageRef.current(vm.x, vm.y, false)
-      if (!newPos) return
-      lastMousePosRef.current = newPos
-      panMonsterOnDesktopScrollRef.current(newPos)
-    }
-
-    function onDesktopScroll() {
-      const top = el.scrollTop
-      if (top === lastDesktopScrollTopRef.current) return
-      lastDesktopScrollTopRef.current = top
-      markPageScrolling()
-      if (panRaf) return
-      panRaf = requestAnimationFrame(() => {
-        panRaf = null
-        panMonsterToScrollAim()
+    function scheduleSyncAim() {
+      if (syncRaf) return
+      syncRaf = requestAnimationFrame(() => {
+        syncRaf = null
+        syncScrollAimRef.current()
       })
     }
 
-    function onDesktopWheel() {
+    function onPageScroll() {
+      if (isMobileRef.current && !mobileScrollNeededRef.current && el.scrollTop !== 0) {
+        el.scrollTop = 0
+      }
+      lastScrollPosRef.current = { top: el.scrollTop, left: el.scrollLeft }
       markPageScrolling()
+      scheduleSyncAim()
     }
 
-    lastDesktopScrollTopRef.current = el.scrollTop
-    el.addEventListener('scroll', onDesktopScroll, { passive: true })
-    el.addEventListener('wheel', onDesktopWheel, { passive: true })
-    return () => {
-      el.removeEventListener('scroll', onDesktopScroll)
-      el.removeEventListener('wheel', onDesktopWheel)
-      clearTimeout(scrollIdleTimer)
-      if (panRaf) cancelAnimationFrame(panRaf)
+    function onWheelTrack(e) {
+      if (isMobile) return
+      if (!bookcaseRevealed || showTitle) return
+      viewportMouseRef.current = { x: e.clientX, y: e.clientY }
+      if (pageScrollingRef.current) scheduleSyncAim()
     }
-  }, [isMobile, selected, editDragging])
 
-  // Mobile vertical scroll — lerp arm to the cursor's stage-local aim as shelves move.
-  useEffect(() => {
-    if (!isMobile) return
-    const el = scrollRef.current
-    if (!el) return
-    let scrollRaf = null
-    let scrollIdleTimer = null
-    function markPageScrolling() {
-      pageScrollingRef.current = true
-      clearTimeout(scrollIdleTimer)
-      scrollIdleTimer = setTimeout(() => {
-        pageScrollingRef.current = false
-      }, 220)
-    }
-    function onMobileScroll() {
-      markPageScrolling()
-      if (scrollRaf) return
-      scrollRaf = requestAnimationFrame(() => {
-        scrollRaf = null
-        if (introBlockRef.current) return
-        if (selected || grabPhaseRef.current || editDraggingRef.current) return
-        const vm = viewportMouseRef.current
-        if (!vm) return
-        const newPos = clientToStageRef.current(vm.x, vm.y, true)
-        if (!newPos) return
-        lastMousePosRef.current = newPos
-        trackArmTargetRef.current(newPos)
-      })
-    }
-    el.addEventListener('scroll', onMobileScroll, { passive: true })
+    lastScrollPosRef.current = { top: el.scrollTop, left: el.scrollLeft }
+    el.addEventListener('scroll', onPageScroll, { passive: true })
+    window.addEventListener('wheel', onWheelTrack, { passive: true })
+
     return () => {
-      el.removeEventListener('scroll', onMobileScroll)
-      if (scrollRaf) cancelAnimationFrame(scrollRaf)
+      el.removeEventListener('scroll', onPageScroll)
+      window.removeEventListener('wheel', onWheelTrack)
       clearTimeout(scrollIdleTimer)
+      if (syncRaf) cancelAnimationFrame(syncRaf)
+      if (aimLoopRaf) cancelAnimationFrame(aimLoopRaf)
+      pageScrollingRef.current = false
     }
-  }, [isMobile, selected, editDragging])
+  }, [isMobile, bookcaseRevealed, showTitle])
 
   // Zoomed-in: center horizontal scroll on the bookcase only when entering detail view.
   useEffect(() => {
@@ -971,6 +1086,10 @@ export default function App() {
       setMonsterColorKey(look.colorKey)
       setMonsterHatKey(look.hatKey)
       setMonsterHatColorKey(look.hatColorKey)
+      setMonsterEyeColorKey(look.eyeColorKey)
+      setMonsterEyeShapeKey(look.eyeShapeKey)
+      setMonsterAccessoryKey(look.accessoryKey)
+      setMonsterAccessoryColorKey(look.accessoryColorKey)
       setInventory(inv)
       if (isNewUser) setShowOnboarding(true)
       if (_startEdit || isNewUser) { isEditModeRef.current = true; setIsEditMode(true) }
@@ -997,6 +1116,10 @@ export default function App() {
       setMonsterColorKey(ownerLook.colorKey)
       setMonsterHatKey(ownerLook.hatKey)
       setMonsterHatColorKey(ownerLook.hatColorKey)
+      setMonsterEyeColorKey(ownerLook.eyeColorKey)
+      setMonsterEyeShapeKey(ownerLook.eyeShapeKey)
+      setMonsterAccessoryKey(ownerLook.accessoryKey)
+      setMonsterAccessoryColorKey(ownerLook.accessoryColorKey)
       setIsDbLoaded(true)
       // background: check if viewer has their own shelf + store their userId
       try {
@@ -1083,12 +1206,16 @@ export default function App() {
     shareCopyTimerRef.current = setTimeout(clearShareCopyNotice, 2800)
   }
 
-  async function handleMonsterSave(colorKey, hatKey, hatColorKey) {
+  async function handleMonsterSave(colorKey, hatKey, hatColorKey, eyeColorKey, eyeShapeKey, accessoryKey, accessoryColorKey) {
     setMonsterColorKey(colorKey)
     setMonsterHatKey(hatKey)
     setMonsterHatColorKey(hatColorKey)
+    setMonsterEyeColorKey(eyeColorKey)
+    setMonsterEyeShapeKey(eyeShapeKey)
+    setMonsterAccessoryKey(accessoryKey)
+    setMonsterAccessoryColorKey(accessoryColorKey)
     if (userId && !isViewOnly) {
-      try { await setMonsterLook(userId, colorKey, hatKey, hatColorKey) } catch { setSaveStatus('error') }
+      try { await setMonsterLook(userId, colorKey, hatKey, hatColorKey, eyeColorKey, eyeShapeKey, accessoryKey, accessoryColorKey) } catch { setSaveStatus('error') }
     }
   }
 
@@ -1137,26 +1264,31 @@ export default function App() {
       return () => { clearTimeout(tReveal); clearTimeout(tClear) }
     }
 
-    // Mode 1 (from title intro): no poof — reveal immediately, head pops up from behind
-    // the bookshelf. It renders at z 1 (shelf rows are z 2 and opaque), so starting just
-    // below the top board keeps it hidden until it rises above the shelf.
-    const startBelow = 340
+    // Mode 1 (from title intro): no poof — reveal immediately, head rises from the
+    // vertical center of the viewport up to the shelf.
     let emergeRaf = null
 
     setBookcaseRevealed(true)
-    setHeadIntroTop(startBelow)
-    setHeadIntroLeft(580)
+
+    requestAnimationFrame(() => {
+      setHeadIntroTop(headIntroViewportCenterTop())
+      setHeadIntroLeft(580)
+    })
 
     const t1 = setTimeout(() => {
-      const headEndTop = 108  // topBlend=1 resting headTop
-      const dur        = 820
+      const startTop = headIntroViewportCenterTop()
+      const headEndTop = HEAD_INTRO_END_TOP
+      const dur = getHeadIntroDuration(monsterHatKey, headEndTop, startTop)
+
+      setHeadIntroTop(startTop)
+      setHeadIntroLeft(580)
 
       let t0 = null
       function frameEmerge(ts) {
         if (!t0) t0 = ts
         const p  = Math.min(1, (ts - t0) / dur)
-        const ep = 1 - Math.pow(1 - p, 3)  // ease-out cubic
-        setHeadIntroTop(Math.round(startBelow + (headEndTop - startBelow) * ep))
+        const ep = headIntroEmergenceEase(p)
+        setHeadIntroTop(Math.round(startTop + (headEndTop - startTop) * ep))
         if (p < 1) {
           emergeRaf = requestAnimationFrame(frameEmerge)
         } else {
@@ -1177,7 +1309,7 @@ export default function App() {
       setHeadIntroLeft(null)
       document.body.style.overflow = ''
     }
-  }, [isDbLoaded, showOnboarding, showTitle]) // eslint-disable-line
+  }, [isDbLoaded, showOnboarding, showTitle, monsterHatKey]) // eslint-disable-line
 
   // Title scroll path reveals the bookcase before dismiss; unlock scroll once the title
   // DOM is gone so desktop isn't stuck with overflow:hidden.
@@ -1248,6 +1380,7 @@ export default function App() {
     cancelAnimationFrame(retractRef.current)
     cancelAnimationFrame(grabRafRef.current)
     cancelAnimationFrame(armLerpRafRef.current)
+    cancelArmGlideWait()
     cancelScaleAnim()
   }, [])
 
@@ -1297,13 +1430,19 @@ export default function App() {
     function onWindowMove(e, touch = false) {
       const prevVm = viewportMouseRef.current
       const sameViewport = prevVm && prevVm.x === e.clientX && prevVm.y === e.clientY
-      // While the page is scrolling, dedicated scroll handlers own arm updates.
-      if (pageScrollingRef.current) return
-      if (!touch && !isMobileRef.current && sameViewport) return
-      const pos = clientToStage(e.clientX, e.clientY, touch && isMobileRef.current)
-      if (!pos) return
+
+      // Always keep viewport aim fresh — required for hand-under-cursor during scroll.
       viewportMouseRef.current = { x: e.clientX, y: e.clientY }
-      lastMousePosRef.current = pos
+      const pos = clientToStage(e.clientX, e.clientY, true)
+      if (pos) lastMousePosRef.current = pos
+
+      if (pageScrollingRef.current) {
+        if (pos) syncScrollAimRef.current()
+        return
+      }
+
+      if (!touch && !isMobileRef.current && sameViewport) return
+      if (!pos) return
       if (uiOverlayOpenRef.current) return
       if (grabPhaseRef.current) return
       if (introBlockRef.current) return
@@ -1325,21 +1464,60 @@ export default function App() {
       if (uiOverlayOpenRef.current || grabPhaseRef.current || introBlockRef.current || editDraggingRef.current) return
       const pos = clientToStage(e.clientX, e.clientY, true)
       if (!pos) return
+      mobileTouchActiveRef.current = true
       viewportMouseRef.current = { x: e.clientX, y: e.clientY }
       lastMousePosRef.current = pos
       trackArmTargetRef.current(pos)
     }
 
+    function onWindowPointerUp(e) {
+      if (e.pointerType !== 'touch') return
+      mobileTouchActiveRef.current = false
+    }
+
     window.addEventListener('mousemove', onWindowMove)
     window.addEventListener('pointermove', onWindowPointer)
-    window.addEventListener('pointerdown', onWindowPointerDown)
+    window.addEventListener('pointerdown', onWindowPointerDown, { capture: true })
+    window.addEventListener('pointerup', onWindowPointerUp, { capture: true })
+    window.addEventListener('pointercancel', onWindowPointerUp, { capture: true })
     return () => {
       window.removeEventListener('mousemove', onWindowMove)
       window.removeEventListener('pointermove', onWindowPointer)
-      window.removeEventListener('pointerdown', onWindowPointerDown)
+      window.removeEventListener('pointerdown', onWindowPointerDown, { capture: true })
+      window.removeEventListener('pointerup', onWindowPointerUp, { capture: true })
+      window.removeEventListener('pointercancel', onWindowPointerUp, { capture: true })
       if (rafId) cancelAnimationFrame(rafId)
     }
   }, [selected, showBookPanel, showDecorPanel, showMonsterPanel, showShelfList, showShareModal, showPlateEdit, showAddShelfModal, editingShelfIdx, showOnboarding])
+
+  // Mobile browse: block native page scroll; pan only when finger is near screen edges.
+  useEffect(() => {
+    if (!isMobile || !bookcaseRevealed || showTitle) return
+
+    let panRaf = null
+    function panTick() {
+      panRaf = requestAnimationFrame(panTick)
+      if (!mobileTouchActiveRef.current || !mobileScrollNeededRef.current) return
+      if (editDraggingRef.current || uiOverlayOpenRef.current || grabPhaseRef.current || introBlockRef.current) return
+      const vm = viewportMouseRef.current
+      if (vm) applyMobileEdgePanRef.current(vm.x, vm.y)
+    }
+    panRaf = requestAnimationFrame(panTick)
+
+    function blockNativeScroll(e) {
+      if (editDraggingRef.current || uiOverlayOpenRef.current) return
+      const t = e.target
+      if (t?.closest?.('.mobile-footer-scroll, .style-hat-scroll, .sheet-max-viewport, .panel-scroll, .scroll-fade-scroll, .scroll-fade-wrap--self')) return
+      // Small shelves: block all scroll gestures. Large shelves: edge-pan only (also blocked here).
+      e.preventDefault()
+    }
+    window.addEventListener('touchmove', blockNativeScroll, { passive: false })
+
+    return () => {
+      if (panRaf) cancelAnimationFrame(panRaf)
+      window.removeEventListener('touchmove', blockNativeScroll)
+    }
+  }, [isMobile, bookcaseRevealed, showTitle])
 
   // Capture taps/clicks on the stage so shelf touches always reach the arm handler.
   useEffect(() => {
@@ -1398,18 +1576,30 @@ export default function App() {
     }
     const pos = clickToStageAim(clickEvent)
     if (pos) {
-      snapArmTarget(pos)
-      lastMousePosRef.current = pos
+      if (isMobileRef.current) {
+        if (armLerpRafRef.current) refineArmGoal(pos)
+        else trackArmTarget(pos)
+      } else {
+        snapArmTarget(pos)
+        lastMousePosRef.current = pos
+      }
     } else if (lastMousePosRef.current) {
-      snapArmTarget(lastMousePosRef.current)
+      if (isMobileRef.current) {
+        if (armLerpRafRef.current) refineArmGoal(lastMousePosRef.current)
+        else trackArmTarget(lastMousePosRef.current)
+      } else {
+        snapArmTarget(lastMousePosRef.current)
+      }
     }
 
-    grabPhaseRef.current = 'extending'
-    setGrabPhase('extending')
-    setGrabbedBook(b)
-    setHoveredId(null)
-    cancelAnimationFrame(retractRef.current)
-    cancelAnimationFrame(grabRafRef.current)
+    function beginBookGrab() {
+      if (grabPhaseRef.current) return
+      grabPhaseRef.current = 'extending'
+      setGrabPhase('extending')
+      setGrabbedBook(b)
+      setHoveredId(null)
+      cancelAnimationFrame(retractRef.current)
+      cancelAnimationFrame(grabRafRef.current)
 
     const EXTEND_DUR = 350
     const GRAB_HOLD  = 150
@@ -1440,7 +1630,7 @@ export default function App() {
         grabPhaseRef.current = 'retracting'
         setGrabPhase('retracting')
 
-        const from = displayTargetRef.current ? { ...displayTargetRef.current } : { x: 340, y: 500 }
+        const from = displayTargetRef.current ? { ...displayTargetRef.current } : { ...DEFAULT_ARM_TARGET }
         const toX = 820  // must clear shelf right edge (171+624=795) before z-index drops
         let retStart = null
         function retractLoop(ts3) {
@@ -1488,8 +1678,8 @@ export default function App() {
               setGrabbedBook(null)
               setFingerExtend(0)
               setRetractMode(0)
-              displayTargetRef.current = null
-              setDisplayTarget(null)
+              displayTargetRef.current = DEFAULT_ARM_TARGET
+              setDisplayTarget(DEFAULT_ARM_TARGET)
 
               clearTimeout(closeTimer.current)
               setSelected(b)
@@ -1504,6 +1694,13 @@ export default function App() {
       grabRafRef.current = requestAnimationFrame(holdLoop)
     }
     grabRafRef.current = requestAnimationFrame(extendLoop)
+    }
+
+    if (isMobileRef.current) {
+      waitForArmGlideThen(beginBookGrab)
+      return
+    }
+    beginBookGrab()
   }, [])
   handleClickRef.current = handleClick
 
@@ -1524,6 +1721,9 @@ export default function App() {
       if (pos) {
         displayTargetRef.current = pos
         setDisplayTarget(pos)
+      } else {
+        displayTargetRef.current = DEFAULT_ARM_TARGET
+        setDisplayTarget(DEFAULT_ARM_TARGET)
       }
     }, 480)
   }, [])
@@ -1913,27 +2113,7 @@ export default function App() {
     function panTick() {
       panRaf = requestAnimationFrame(panTick)
       if (!lastPoint || window.innerWidth >= 768) return
-      const EDGE = 64, MAX_V = 14
-      const speed = depth => Math.ceil(MAX_V * Math.min(1, depth / EDGE))
-      let panned = false
-      // Both scroll axes live on scrollRef now (containerRef is a max-content wrapper).
-      const scr = scrollRef.current
-      if (scr) {
-        if (zoomedInRef.current) {
-          const sc = scaleRef.current
-          const { min, max } = mobileShelfScrollBounds(scr, sc)
-          if (lastPoint.x < EDGE) {
-            scr.scrollLeft = Math.max(min, scr.scrollLeft - speed(EDGE - lastPoint.x))
-            panned = true
-          } else if (lastPoint.x > window.innerWidth - EDGE) {
-            scr.scrollLeft = Math.min(max, scr.scrollLeft + speed(lastPoint.x - (window.innerWidth - EDGE)))
-            panned = true
-          }
-        }
-        const topEdge = EDGE
-        if (lastPoint.y < topEdge) { scr.scrollTop -= speed(topEdge - lastPoint.y); panned = true }
-        else if (lastPoint.y > window.innerHeight - EDGE) { scr.scrollTop += speed(lastPoint.y - (window.innerHeight - EDGE)); panned = true }
-      }
+      const panned = applyMobileEdgePanRef.current(lastPoint.x, lastPoint.y)
       if (panned) onMove({ clientX: lastPoint.x, clientY: lastPoint.y })
     }
     panRaf = requestAnimationFrame(panTick)
@@ -2224,18 +2404,17 @@ export default function App() {
   const blendLow = isMobile ? 320 : 340
   const blendHigh = isMobile ? 460 : 440
   const topBlend = arm.elbowY < blendLow ? 1 : arm.elbowY > blendHigh ? 0 : (blendHigh - arm.elbowY) / (blendHigh - blendLow)
+  const hatParkExtra = Math.round(getHatOverhangAboveHeadPx(monsterHatKey) * 0.55)
   const headLeft = headIntroLeft !== null ? headIntroLeft
     : (retreating && !overlayOpenTopRow && !grabReturnTopRow) ? 250
     : 580 * topBlend + (isMobile ? 710 : 740) * (1 - topBlend)
   const headTop  = headIntroTop !== null ? headIntroTop
-    : overlayOpenTopRow ? 200
-    : grabReturnTopRow ? 190
+    : overlayOpenTopRow ? 200 + hatParkExtra
+    : grabReturnTopRow ? 190 + hatParkExtra
     : 108 * topBlend + (arm.handY - 295) * (1 - topBlend)
   const headRotate = retreating ? 0 : -5 * topBlend + 7 * (1 - topBlend)
   // Render the head directly from the arm-derived pose — no second lerp on top of the
-  // arm's own smoothing. Otherwise the head trails the hand by ~1 tau every frame, which
-  // reads as visible lag. `arm.elbowY` / `arm.handY` are already interpolated on mobile
-  // (via startArmLerp) and snap on desktop, so this stays smooth on both platforms.
+  // arm's own smoothing. During scroll, arm aim re-syncs each frame to the viewport cursor.
   // Non-tracking modes (intro / retreat / overlay) already ride on `headIntroTop`/`headIntroLeft`
   // and the retreat branch of `headLeft`, so their CSS transitions handle them.
   const renderHeadLeft = headLeft
@@ -2258,8 +2437,13 @@ export default function App() {
 
   // Grabbed book clone — follows arm; matches actual shelf book dimensions
   const CLONE_W = Math.round(SLOT_W * 1.1)
-  const CLONE_H = grabbedBook ? Math.round(safeShelfH * (0.72 + titleT(grabbedBook.title) * 0.28) * 1.1) : safeShelfH
-  const cloneSpineFontSize = grabbedBook ? Math.max(7, Math.min(12, Math.floor((CLONE_H - 16) / ((grabbedBook.title || '').length * 0.62)))) : 12
+  const cloneDims = grabbedBook
+    ? (() => {
+        const base = getSpineDims({ axis: 'vertical', title: grabbedBook.title, slotW: CLONE_W, shelfH: safeShelfH })
+        return { w: CLONE_W, h: Math.round(base.h * 1.1) }
+      })()
+    : { w: CLONE_W, h: safeShelfH }
+  const CLONE_H = cloneDims.h
   const showClone = grabbedBook && (grabPhase === 'grabbing' || grabPhase === 'retracting')
   const cloneLeft = arm.handTipX + 2 - CLONE_W
   const cloneTop  = arm.handY - 24 - CLONE_H / 2
@@ -2304,21 +2488,20 @@ export default function App() {
     // The intro effect will skip Mode 1 because bookcaseRevealed is already true.
     if (isDbLoaded && !bookcaseRevealed) {
       setBookcaseRevealed(true)
-      // Start just below the shelf's top board (head is z-behind the opaque rows) so it
-      // pops up from behind the bookshelf rather than traveling from the screen bottom
-      const startBelow = 340
-      setHeadIntroTop(startBelow)
       setHeadIntroLeft(580)
-      // Start head emergence ~600ms in — roughly when the scroll reaches the shelf
+      // Start head emergence ~600ms in — roughly when the scroll reaches the shelf.
+      // Measure start position at kickoff so it stays vertically centered in the viewport.
       setTimeout(() => {
-        const headEndTop = 108
-        const dur = 820
+        const startTop = headIntroViewportCenterTop()
+        const headEndTop = HEAD_INTRO_END_TOP
+        const dur = getHeadIntroDuration(monsterHatKey, headEndTop, startTop)
+        setHeadIntroTop(startTop)
         let t0 = null
         function frameEmerge(ts) {
           if (!t0) t0 = ts
           const p = Math.min(1, (ts - t0) / dur)
-          const ep = 1 - Math.pow(1 - p, 3)
-          setHeadIntroTop(Math.round(startBelow + (headEndTop - startBelow) * ep))
+          const ep = headIntroEmergenceEase(p)
+          setHeadIntroTop(Math.round(startTop + (headEndTop - startTop) * ep))
           if (p < 1) {
             requestAnimationFrame(frameEmerge)
           } else {
@@ -2358,6 +2541,21 @@ export default function App() {
     if (!showTitle && scrollRef.current) scrollRef.current.scrollTop = 0
   }, [showTitle])
 
+  // Idle title: lock the scrollport (tall gap + stage sit below for the Start transition).
+  useLayoutEffect(() => {
+    if (!showTitle || scrollUnlocked) return
+    const el = scrollRef.current
+    if (el) el.scrollTop = 0
+    const prevHtml = document.documentElement.style.overflow
+    const prevBody = document.body.style.overflow
+    document.documentElement.style.overflow = 'hidden'
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.documentElement.style.overflow = prevHtml
+      document.body.style.overflow = prevBody
+    }
+  }, [showTitle, scrollUnlocked])
+
   if (dbError) {
     return (
       <div className="fill-viewport" style={{
@@ -2381,7 +2579,7 @@ export default function App() {
     )
   }
 
-  if (!isDbLoaded && !showTitle) {
+  if (!isDbLoaded) {
     return (
       <div className="fill-viewport" style={{
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
@@ -2393,19 +2591,26 @@ export default function App() {
     )
   }
 
-  const pageCanScroll = !showTitle && (scrollUnlocked || bookcaseRevealed)
+  const titleRevealScrolling = showTitle && scrollUnlocked
+  const mobileScrollNeeded = isMobile && bookcaseRevealed && !showTitle && maxScrollTopAt(scale) > 1
+  const mobileScrollLocked = isMobile && bookcaseRevealed && !showTitle && !mobileScrollNeeded
+  const mobileEdgeScroll = mobileScrollNeeded && !editDragging && !uiOverlayOpen
+  const pageCanScrollY = titleRevealScrolling || (bookcaseRevealed && !showTitle && (!isMobile || mobileScrollNeeded))
+  const titleScrollLocked = showTitle && !scrollUnlocked
+  const mobileNoTouchScroll = !uiOverlayOpen && (mobileScrollLocked || mobileEdgeScroll)
 
   return (
+    <StageScaleProvider scale={scale} isMobile={isMobile} zoomedIn={zoomedIn} scaleTransitioning={scaleTransitioning}>
     <>
     <div ref={scrollRef} className="fill-viewport page-scroll" style={{
-      overflowY: pageCanScroll ? 'auto' : 'hidden',
+      ...(titleScrollLocked ? { position: 'fixed', inset: 0, width: '100%' } : null),
+      overflowY: pageCanScrollY ? 'auto' : 'hidden',
       overflowX: (isMobile && zoomedIn && !showTitle) ? 'auto' : 'hidden',
+      overscrollBehavior: (titleScrollLocked || mobileScrollLocked) ? 'none' : undefined,
       overscrollBehaviorX: 'none',
+      touchAction: titleScrollLocked ? 'none' : (mobileNoTouchScroll ? 'none' : undefined),
       background: '#223152',
-      // Mobile one-shelf-focus: gently snap each shelf into view on vertical scroll.
-      // 'proximity' (not 'mandatory') so the head/top and add-shelf button stay reachable.
-      // Off while dragging so edge auto-pan isn't yanked back to a snap point.
-      scrollSnapType: (isMobile && !showTitle && !editDragging && !scaleTransitioning) ? 'y proximity' : undefined }}>
+    }}>
       {showTitle && (
         <>
           <TitleScreen
@@ -2417,6 +2622,10 @@ export default function App() {
             accentColor={monsterLook.accent}
             hat={monsterHatKey}
             hatColorKey={monsterHatColorKey}
+            eyeColorKey={monsterEyeColorKey}
+            eyeShapeKey={monsterEyeShapeKey}
+            accessory={monsterAccessoryKey}
+            accessoryColorKey={monsterAccessoryColorKey}
           />
           <div className="gap-viewport" style={{
             width: '100%',
@@ -2444,11 +2653,12 @@ export default function App() {
         onMouseMove={handleMove}
         onMouseLeave={handleLeave}
         style={{ position: 'relative', width: 1080, height: stageHeight,
+          WebkitTextSizeAdjust: 'none', textSizeAdjust: 'none',
           // zoom is applied imperatively via a layout effect (see scaleRef sync) so the
           // per-frame animated value survives React re-renders without a flash.
           zIndex: retreating ? 10 : undefined,
-          // Zoomed in: pan within the shelf. Zoomed out: vertical only. Freeze while dragging.
-          touchAction: isMobile ? (editDragging ? 'none' : (zoomedIn ? 'pan-x pan-y' : 'pan-y')) : 'pan-y',
+          // Edge-scroll mode: touch-action none blocks native pan; scrolling is edge-driven only.
+          touchAction: isMobile ? (editDragging || mobileNoTouchScroll ? 'none' : (zoomedIn ? 'pan-x pan-y' : 'pan-y')) : 'pan-y',
           // flexShrink 0: flex items default to shrink:1, which would compress the zoomed stage
           // below 1080*scale. With shrink off, plain flex centering crops the overflow equally
           // on both sides — engine-agnostic (margin-based centering interacts with CSS zoom
@@ -2472,6 +2682,7 @@ export default function App() {
                   position: 'absolute', top: 28, left: '50%',
                   transform: 'translateX(-50%)',
                   display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5,
+                  fontSize: PLATE_EM_BASE,
                   opacity: (isMobile || nearTop) ? 1 : 0,
                   transition: 'opacity 0.35s ease',
                   pointerEvents: (isMobile || nearTop) ? 'auto' : 'none',
@@ -2485,7 +2696,7 @@ export default function App() {
                   <path d="M9 1 L17 11 L1 11 Z" fill="rgba(253,248,239,0.65)" />
                 </svg>
                 <span style={{
-                  fontSize: 9, fontWeight: 700, letterSpacing: '0.12em',
+                  fontSize: `${SURFACE_LABEL_FONT_EM}em`, fontWeight: 700, letterSpacing: '0.12em',
                   color: 'rgba(253,248,239,0.5)', fontFamily: "'Manrope', sans-serif",
                   textTransform: 'uppercase',
                 }}>Surface</span>
@@ -2509,7 +2720,6 @@ export default function App() {
             <ShelfPlate
               shelfName={shelfName}
               username={username}
-              isMobile={isMobile}
             />
           </div>
 
@@ -2537,6 +2747,10 @@ export default function App() {
                 accentColor={monsterLook.accent}
                 hat={monsterHatKey}
                 hatColorKey={monsterHatColorKey}
+                eyeColorKey={monsterEyeColorKey}
+                eyeShapeKey={monsterEyeShapeKey}
+                accessory={monsterAccessoryKey}
+                accessoryColorKey={monsterAccessoryColorKey}
                 blinkAnim={headDucking ? 'squint' : (uiOverlayOpen ? 'none' : 'blink')}
                 style={{ cursor: uiOverlayOpen ? 'default' : 'pointer' }}
                 onMouseEnter={() => {
@@ -2593,11 +2807,7 @@ export default function App() {
                     shelfH={safeShelfH}
                   />
                 )
-                // On mobile each shelf row is a vertical scroll-snap target so the view
-                // settles on one shelf at a time. scrollMarginTop offsets the view-only banner.
-                return isMobile
-                  ? <div key={cfg.id} style={{ scrollSnapAlign: 'center' }}>{row}</div>
-                  : <div key={cfg.id}>{row}</div>
+                return <div key={cfg.id}>{row}</div>
               })
             })()}
             </div>{/* end scrollable shelf list */}
@@ -2617,19 +2827,9 @@ export default function App() {
               zIndex: 10,
               pointerEvents: 'none',
               boxShadow: 'inset -2px 0 5px rgba(0,0,0,0.18), 0 6px 18px rgba(0,0,0,0.35)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+              overflow: 'hidden',
             }}>
-              <span style={{
-                writingMode: 'vertical-rl', textOrientation: 'mixed', whiteSpace: 'nowrap',
-                fontFamily: "'Manrope', sans-serif", fontWeight: 600,
-                fontSize: cloneSpineFontSize,
-                letterSpacing: cloneSpineFontSize < 10 ? '0' : '0.3px',
-                color: grabbedBook.ink,
-                padding: '8px 0', maxHeight: CLONE_H - 14, overflow: 'hidden',
-                pointerEvents: 'none',
-              }}>
-                {grabbedBook.title}
-              </span>
+              <SpineLabel axis="vertical" title={grabbedBook.title} dims={cloneDims} ink={grabbedBook.ink} />
             </div>
           )}
 
@@ -2807,32 +3007,40 @@ export default function App() {
 
       {/* Share modal */}
       {showShareModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(25,36,61,0.6)', zIndex: 9000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          onMouseDown={e => { if (e.target === e.currentTarget) { setShowShareModal(false); clearShareCopyNotice() } }}>
-          <div style={{ background: '#FDF8EF', borderRadius: 20, padding: '28px 32px 24px', width: 'min(340px, 92vw)', boxShadow: '0 16px 48px rgba(0,0,0,0.3)', fontFamily: "'Manrope',sans-serif" }}
-            onMouseDown={e => e.stopPropagation()}>
-            <div style={{ fontSize: 22, fontWeight: 700, color: '#1C1C2E', marginBottom: 6 }}>Share your shelf</div>
-            <div style={{ fontSize: 14, color: '#666680', marginBottom: 20 }}>Anyone with this link can view your shelf.</div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#606078', marginBottom: 8, letterSpacing: '0.04em' }}>LINK</div>
-            <input
+        <DialogBackdrop
+          onClose={e => { if (e.target === e.currentTarget) { setShowShareModal(false); clearShareCopyNotice() } }}
+        >
+          <DialogCard>
+            <DialogTitle>Share your shelf</DialogTitle>
+            <DialogDescription>Anyone with this link can view your shelf.</DialogDescription>
+            <FieldLabel>Link</FieldLabel>
+            <TextInput
               ref={shareLinkInputRef}
               readOnly
               value={`${window.location.origin}${window.location.pathname}?shelf=${shareId}`}
               onFocus={e => e.target.select()}
-              style={{ width: '100%', boxSizing: 'border-box', border: '2px solid #D0D0DC', borderRadius: 10, padding: '9px 13px', fontSize: 13, fontFamily: "'Manrope',sans-serif", fontWeight: 500, background: 'white', color: '#1C1C2E', outline: 'none', marginBottom: 16, cursor: 'text' }}
+              style={{ fontSize: 13, fontWeight: 500, marginBottom: 16 }}
             />
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <button
+            <DialogActions>
+              <Button
+                variant={linkCopied ? 'success' : 'primary'}
+                size="dialog"
+                fullWidth
                 onClick={copyShareLink}
-                style={{ flex: 1, background: linkCopied ? '#3EAF2D' : '#254CA4', border: 'none', borderRadius: 10, padding: '11px 0', fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: 15, color: '#FDF8EF', cursor: 'pointer', transition: 'background 0.15s' }}
-              >{linkCopied ? 'Copied!' : 'Copy link'}</button>
-              <button
+              >
+                {linkCopied ? 'Copied!' : 'Copy link'}
+              </Button>
+              <Button
+                variant="ghost"
+                size="dialog"
+                fullWidth
                 onClick={() => { setShowShareModal(false); clearShareCopyNotice() }}
-                style={{ flex: 1, background: 'transparent', border: '2px solid #D0D0DC', borderRadius: 10, padding: '11px 0', fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: 15, color: '#606078', cursor: 'pointer' }}
-              >Close</button>
-            </div>
-          </div>
-        </div>
+              >
+                Close
+              </Button>
+            </DialogActions>
+          </DialogCard>
+        </DialogBackdrop>
       )}
 
       {showOnboarding && <OnboardingOverlay onSubmit={handleOnboardingSubmit} />}
@@ -2986,6 +3194,10 @@ export default function App() {
             colorKey={monsterColorKey}
             hatKey={monsterHatKey}
             hatColorKey={monsterHatColorKey}
+            eyeColorKey={monsterEyeColorKey}
+            eyeShapeKey={monsterEyeShapeKey}
+            accessoryKey={monsterAccessoryKey}
+            accessoryColorKey={monsterAccessoryColorKey}
             onSave={handleMonsterSave}
             onClose={() => setShowMonsterPanel(false)}
             isMobile={isMobile}
@@ -3111,5 +3323,6 @@ export default function App() {
       </div>
     )}
     </>
+    </StageScaleProvider>
   )
 }

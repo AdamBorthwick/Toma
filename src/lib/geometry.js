@@ -69,12 +69,16 @@ function findFreeZone(items, centre, sw, excl) {
 // upper arm flattens to horizontal, letting the arm clear past the shelf edge.
 // returnProgress 0→1: during 'returning', sweeps elbow leftward into the shelf so the
 // whole arm disappears behind it (elbow moves 760 → 300).
+// Resting aim near the top shelf row — elbowY below blendLow keeps topBlend = 1
+// so Toma's head parks at headTop ≈ 108 above the top board.
+const DEFAULT_ARM_TARGET = { x: 520, y: 280 }
+
 function computeArm(target, retractMode = 0, returnProgress = 0, maxElbowY = 9999, minTx = 270, maxTx = 786) {
-  const rawTx = target ? target.x : 397
+  const rawTx = target ? target.x : DEFAULT_ARM_TARGET.x
   const tx = retractMode > 0
     ? Math.max(minTx, rawTx)
     : Math.max(minTx, Math.min(maxTx, rawTx))
-  const ty = target ? target.y : 500
+  const ty = target ? target.y : DEFAULT_ARM_TARGET.y
   const elbowX = 910 - returnProgress * 460  // 910 → 450 as arm sweeps back into shelf
   const elbowY = Math.max(214, Math.min(maxElbowY, ty))
   const L = 98
@@ -110,4 +114,4 @@ function titleT(title) {
 }
 
 
-export { GHOST_LIFT, setGhostPos, slotsOverlap, freeZoneAt, findFreeZone, computeArm, computeFingerPaths, titleT }
+export { GHOST_LIFT, setGhostPos, slotsOverlap, freeZoneAt, findFreeZone, computeArm, computeFingerPaths, titleT, DEFAULT_ARM_TARGET }

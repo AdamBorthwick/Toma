@@ -87,6 +87,14 @@ function IconPerson({ size = 28, color = 'currentColor' }) {
     </svg>
   )
 }
+function IconArrowUpRight({ size = 14, color = 'currentColor' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 14 14" fill="none">
+      <path d="M3 11 L11 3" stroke={color} strokeWidth="2" strokeLinecap="round" />
+      <polyline points="6,3 11,3 11,8" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+    </svg>
+  )
+}
 
 
-export { IconBooks, IconOpenBook, IconTrash, IconPencil, IconClose, IconCheck, IconRotate, IconStar, IconLeaf, IconPerson }
+export { IconBooks, IconOpenBook, IconTrash, IconPencil, IconClose, IconCheck, IconRotate, IconStar, IconLeaf, IconPerson, IconArrowUpRight }

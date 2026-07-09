@@ -1,5 +1,5 @@
 import { supabase } from './supabase.js'
-import { normalizeHatKey } from './data/monster.jsx'
+import { normalizeHatKey, normalizeEyeColorKey, normalizeEyeShapeKey, normalizeAccessoryKey, normalizeAccessoryColorKey, MONSTER_LOOK_DEFAULTS } from './data/monster.jsx'
 
 // ── Errors ────────────────────────────────────────────────────────────────────
 
@@ -423,7 +423,6 @@ export async function getUsername(userId) {
   return data?.username ?? null
 }
 
-const MONSTER_LOOK_DEFAULTS = { colorKey: 'green', hatKey: 'none', hatColorKey: 'red' }
 
 function rowToMonsterLook(row) {
   if (!row) return { ...MONSTER_LOOK_DEFAULTS }
@@ -431,6 +430,10 @@ function rowToMonsterLook(row) {
     colorKey: row.color_key ?? MONSTER_LOOK_DEFAULTS.colorKey,
     hatKey: normalizeHatKey(row.hat_key ?? MONSTER_LOOK_DEFAULTS.hatKey),
     hatColorKey: row.hat_color_key ?? MONSTER_LOOK_DEFAULTS.hatColorKey,
+    eyeColorKey: normalizeEyeColorKey(row.eye_color_key ?? MONSTER_LOOK_DEFAULTS.eyeColorKey),
+    eyeShapeKey: normalizeEyeShapeKey(row.eye_shape_key ?? MONSTER_LOOK_DEFAULTS.eyeShapeKey),
+    accessoryKey: normalizeAccessoryKey(row.accessory_key ?? MONSTER_LOOK_DEFAULTS.accessoryKey),
+    accessoryColorKey: normalizeAccessoryColorKey(row.accessory_color_key ?? MONSTER_LOOK_DEFAULTS.accessoryColorKey),
   }
 }
 
@@ -442,6 +445,10 @@ export async function ensureMonster(userId) {
         color_key: MONSTER_LOOK_DEFAULTS.colorKey,
         hat_key: MONSTER_LOOK_DEFAULTS.hatKey,
         hat_color_key: MONSTER_LOOK_DEFAULTS.hatColorKey,
+        eye_color_key: MONSTER_LOOK_DEFAULTS.eyeColorKey,
+        eye_shape_key: MONSTER_LOOK_DEFAULTS.eyeShapeKey,
+        accessory_key: MONSTER_LOOK_DEFAULTS.accessoryKey,
+        accessory_color_key: MONSTER_LOOK_DEFAULTS.accessoryColorKey,
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'user_id', ignoreDuplicates: true }
@@ -453,7 +460,7 @@ export async function ensureMonster(userId) {
 export async function getMonsterLook(userId) {
   const data = check(
     await supabase.from('monsters')
-      .select('color_key, hat_key, hat_color_key')
+      .select('color_key, hat_key, hat_color_key, eye_color_key, eye_shape_key, accessory_key, accessory_color_key')
       .eq('user_id', userId)
       .maybeSingle(),
     'get monster look'
@@ -465,7 +472,7 @@ export async function getMonsterLook(userId) {
   return rowToMonsterLook(data)
 }
 
-export async function setMonsterLook(userId, colorKey, hatKey, hatColorKey) {
+export async function setMonsterLook(userId, colorKey, hatKey, hatColorKey, eyeColorKey, eyeShapeKey, accessoryKey, accessoryColorKey) {
   check(
     await supabase.from('monsters').upsert(
       {
@@ -473,6 +480,10 @@ export async function setMonsterLook(userId, colorKey, hatKey, hatColorKey) {
         color_key: colorKey,
         hat_key: hatKey,
         hat_color_key: hatColorKey,
+        eye_color_key: eyeColorKey,
+        eye_shape_key: eyeShapeKey,
+        accessory_key: accessoryKey,
+        accessory_color_key: accessoryColorKey,
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'user_id' }
