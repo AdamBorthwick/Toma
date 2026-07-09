@@ -545,12 +545,9 @@ export default function App() {
   const armLerpLastTsRef = useRef(null)
   const armLerpContinueRef = useRef(() => true)
   const isMobileRef = useRef(false)
+  // headGoalRef mirrors the arm-derived head pose so retreat/intro handlers can snap
+  // to the current target without waiting for the next render.
   const headGoalRef = useRef({ left: 630, top: 200, rotate: 0 })
-  const headDisplayRef = useRef({ left: 630, top: 200, rotate: 0 })
-  const headLerpRafRef = useRef(null)
-  const headLerpLastTsRef = useRef(null)
-  const headLerpTauRef = useRef(0.2)
-  const [headDisplay, setHeadDisplay] = useState({ left: 630, top: 200, rotate: 0 })
 
   // Glide the arm toward a goal instead of snapping. Used for scroll, mobile touch
   // (browse + edit), and desktop mouse stays direct/snappy.
@@ -612,41 +609,6 @@ export default function App() {
     setDisplayTarget({ ...goal })
   }
 
-  function ensureHeadLerp() {
-    if (headLerpRafRef.current) return
-    headLerpLastTsRef.current = null
-    function step(ts) {
-      const tgt = headGoalRef.current
-      const from = headDisplayRef.current
-      if (!tgt || !from) {
-        headLerpRafRef.current = null
-        headLerpLastTsRef.current = null
-        return
-      }
-      if (headLerpLastTsRef.current == null) headLerpLastTsRef.current = ts
-      const dt = Math.min(48, ts - headLerpLastTsRef.current) / 1000
-      headLerpLastTsRef.current = ts
-      const a = 1 - Math.exp(-dt / Math.max(0.08, headLerpTauRef.current))
-      const next = {
-        left: from.left + (tgt.left - from.left) * a,
-        top: from.top + (tgt.top - from.top) * a,
-        rotate: from.rotate + (tgt.rotate - from.rotate) * a,
-      }
-      const dist = Math.hypot(next.left - tgt.left, next.top - tgt.top)
-      const rotDist = Math.abs(next.rotate - tgt.rotate)
-      if (dist < 0.45 && rotDist < 0.1) {
-        headDisplayRef.current = { ...tgt }
-        setHeadDisplay({ ...tgt })
-        headLerpRafRef.current = null
-        headLerpLastTsRef.current = null
-        return
-      }
-      headDisplayRef.current = next
-      setHeadDisplay({ ...next })
-      headLerpRafRef.current = requestAnimationFrame(step)
-    }
-    headLerpRafRef.current = requestAnimationFrame(step)
-  }
 
   useEffect(() => { isMobileRef.current = isMobile }, [isMobile])
   useEffect(() => { zoomedInRef.current = zoomedIn }, [zoomedIn])
@@ -1286,7 +1248,6 @@ export default function App() {
     cancelAnimationFrame(retractRef.current)
     cancelAnimationFrame(grabRafRef.current)
     cancelAnimationFrame(armLerpRafRef.current)
-    cancelAnimationFrame(headLerpRafRef.current)
     cancelScaleAnim()
   }, [])
 
@@ -1296,36 +1257,6 @@ export default function App() {
     const t = setTimeout(() => setApplyTopTransition(false), 450)
     return () => clearTimeout(t)
   }, [applyTopTransition])
-
-  // Glide the head toward the pose derived from the arm instead of CSS-snapping left/top.
-  useEffect(() => {
-    const smoothHeadFollow = headIntroTop === null && headIntroLeft === null
-      && !(grabPhase === 'returning' || grabPhase === 'done' || selected !== null)
-      && !applyTopTransition
-    if (!smoothHeadFollow) {
-      if (headLerpRafRef.current) {
-        cancelAnimationFrame(headLerpRafRef.current)
-        headLerpRafRef.current = null
-        headLerpLastTsRef.current = null
-      }
-      const goal = headGoalRef.current
-      headDisplayRef.current = goal
-      setHeadDisplay(goal)
-      return
-    }
-    ensureHeadLerp()
-  }, [
-    displayTarget,
-    retractMode,
-    headIntroTop,
-    headIntroLeft,
-    grabPhase,
-    selected,
-    applyTopTransition,
-    closingToTopRow,
-    isMobile,
-    editDragging,
-  ])
 
   // Stage-level onMouseMove — desktop only; used to clear leave timer / hover.
   // Arm-follow tracking is done globally in the window pointermove effect below.
@@ -2266,9 +2197,9 @@ export default function App() {
   const safeShelfH = (Number.isFinite(shelfH) && shelfH > 0) ? shelfH : SHELF_H
   const bookcaseBottom = 196 + shelfConfigs.length * (safeShelfH + 20)
   bookcaseBottomRef.current = bookcaseBottom
-  // During retreating the arm is at z=1 (behind shelf). Otherwise let the hand reach
-  // the bottom shelf row (elbow can sit slightly below the bookcase floor line).
-  const maxElbowY = retreating ? bookcaseBottom - 60 : bookcaseBottom + 36
+  // During retreating the arm is at z=1 (behind shelf). Otherwise the hand max sits at
+  // the bookcase floor (handY = elbowY + 24 = bookcaseBottom) so it never pokes below.
+  const maxElbowY = retreating ? bookcaseBottom - 60 : bookcaseBottom - 24
   const isEditDragArm = editDragArmVisible
   const armTarget = displayTarget
   const armMaxTx = isMobile ? 850 : 786
@@ -2301,16 +2232,18 @@ export default function App() {
     : grabReturnTopRow ? 190
     : 108 * topBlend + (arm.handY - 295) * (1 - topBlend)
   const headRotate = retreating ? 0 : -5 * topBlend + 7 * (1 - topBlend)
-  headGoalRef.current = { left: headLeft, top: headTop, rotate: headRotate }
+  // Render the head directly from the arm-derived pose — no second lerp on top of the
+  // arm's own smoothing. Otherwise the head trails the hand by ~1 tau every frame, which
+  // reads as visible lag. `arm.elbowY` / `arm.handY` are already interpolated on mobile
+  // (via startArmLerp) and snap on desktop, so this stays smooth on both platforms.
+  // Non-tracking modes (intro / retreat / overlay) already ride on `headIntroTop`/`headIntroLeft`
+  // and the retreat branch of `headLeft`, so their CSS transitions handle them.
+  const renderHeadLeft = headLeft
+  const renderHeadTop = headTop
+  const renderHeadRotate = headRotate
+  // smoothHeadFollow drives the transition selector below — CSS-none during normal
+  // tracking (JS controls the frame-by-frame position) and enabled for intro/retreat.
   const smoothHeadFollow = headIntroTop === null && headIntroLeft === null && !retreating && !applyTopTransition
-  headLerpTauRef.current = pageScrollingRef.current
-    ? 0.38
-    : isMobile
-      ? (mobileArmSmoothTau() + 0.04)
-      : 0.13
-  const renderHeadLeft = smoothHeadFollow ? headDisplay.left : headLeft
-  const renderHeadTop = smoothHeadFollow ? headDisplay.top : headTop
-  const renderHeadRotate = smoothHeadFollow ? headDisplay.rotate : headRotate
   const monsterLook = getMonsterColors(monsterColorKey)
 
   // Blend edit grip over normal grab; whichever is active drives fingers + hand shift
