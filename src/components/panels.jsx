@@ -1214,6 +1214,8 @@ function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, eyeColor
   const [accessorySwapTo, setAccessorySwapTo] = useState('none')
   const [accessorySwapFromColor, setAccessorySwapFromColor] = useState('red')
   const [accessorySwapToColor, setAccessorySwapToColor] = useState('red')
+  const [previewHat, setPreviewHat] = useState(hatKey)
+  const [previewAccessory, setPreviewAccessory] = useState(accessoryKey)
   const colorReadyRef = useRef(false)
   const hatReadyRef = useRef(false)
   const hatColorReadyRef = useRef(false)
@@ -1229,11 +1231,13 @@ function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, eyeColor
   const handleHatSwapComplete = useCallback((hat, color) => {
     visualHatRef.current = hat
     visualHatColorRef.current = color
+    setPreviewHat(hat)
   }, [])
 
   const handleAccessorySwapComplete = useCallback((accessory, color) => {
     visualAccessoryRef.current = accessory
     visualAccessoryColorRef.current = color
+    setPreviewAccessory(accessory)
   }, [])
 
   useLayoutEffect(() => {
@@ -1257,6 +1261,8 @@ function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, eyeColor
     visualHatColorRef.current = hatColorKey
     visualAccessoryRef.current = accessoryKey
     visualAccessoryColorRef.current = accessoryColorKey
+    setPreviewHat(hatKey)
+    setPreviewAccessory(accessoryKey)
     setShakeGen(0)
     setMouthReactGen(0)
     setHatSwapGen(0)
@@ -1280,7 +1286,7 @@ function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, eyeColor
     setShakeGen(g => g + 1)
   }, [draftColor, isOpen])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isOpen) return
     if (!hatReadyRef.current) {
       hatReadyRef.current = true
@@ -1322,7 +1328,7 @@ function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, eyeColor
     setShakeGen(g => g + 1)
   }, [draftEyeShape, isOpen])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isOpen) return
     if (!accessoryReadyRef.current) {
       accessoryReadyRef.current = true
@@ -1405,7 +1411,7 @@ function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, eyeColor
           <TomaAppearancePreview
             bodyColor={preview.body}
             accentColor={preview.accent}
-            hat={draftHat}
+            hat={previewHat}
             hatColorKey={draftHatColor}
             compact={isMobile}
             clipH={isMobile ? 132 : 148}
@@ -1420,7 +1426,7 @@ function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, eyeColor
             hatSwapToColor={hatSwapToColor}
             eyeColorKey={draftEyeColor}
             eyeShapeKey={draftEyeShape}
-            accessory={draftAccessory}
+            accessory={previewAccessory}
             accessoryColorKey={draftAccessoryColor}
             accessorySwapGen={accessorySwapGen}
             accessorySwapFrom={accessorySwapFrom}

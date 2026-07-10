@@ -86,15 +86,13 @@ function TitleScreen({
     }
     const raf = requestAnimationFrame(() => setContentEntered(true))
     const isMobileTitle = window.innerWidth < 768
-    let riseTimer = null
-    if (isMobileTitle) {
-      riseTimer = setTimeout(() => {
-        requestAnimationFrame(() => requestAnimationFrame(() => setMonsterRisen(true)))
-      }, 900)
-    }
+    const riseDelay = isMobileTitle ? 900 : 500
+    const riseTimer = setTimeout(() => {
+      requestAnimationFrame(() => requestAnimationFrame(() => setMonsterRisen(true)))
+    }, riseDelay)
     return () => {
       cancelAnimationFrame(raf)
-      if (riseTimer) clearTimeout(riseTimer)
+      clearTimeout(riseTimer)
     }
   }, [fromSurface])
 
