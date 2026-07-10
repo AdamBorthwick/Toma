@@ -1,13 +1,13 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
 import { mapOpenLibraryBook } from '../lib/openLibrary.js'
 import { ROYGBIV } from '../data/shelves.jsx'
 import { IconBooks, IconOpenBook, IconTrash, IconPencil, IconClose, IconCheck, IconLeaf, IconPerson, IconArrowUpRight } from './icons.jsx'
 import { PlacedFlower, PlacedFlower2, PlacedCoffeeCup, PlacedLight, PlacedClock } from './decor.jsx'
 import { TomaHead } from './scene.jsx'
 import { MonsterHatGraphic, TOMA_FACE_VIEWBOX, getHatPickerViewBox } from './hats.jsx'
-import { AccessoryOnlyPreview } from './accessories.jsx'
+import { AccessoryOnlyPreview, MonsterAccessoryGraphic } from './accessories.jsx'
 import { EyeShapeOnlyPreview } from './eyes.jsx'
-import { MONSTER_COLORS, MONSTER_HATS, MONSTER_EYE_COLORS, MONSTER_EYE_SHAPES, MONSTER_ACCESSORIES, MONSTER_LOOK_DEFAULTS, getMonsterColors } from '../data/monster.jsx'
+import { MONSTER_COLORS, MONSTER_HATS, MONSTER_EYE_COLORS, MONSTER_EYE_SHAPES, MONSTER_ACCESSORIES, MONSTER_LOOK_DEFAULTS, getMonsterColors, STYLE_ITEM_COLORS } from '../data/monster.jsx'
 import { ScrollFade } from './ScrollFade.jsx'
 import {
   BottomSheet,
@@ -199,7 +199,7 @@ function SidePanelButtons({ editDragging, onBook, onDecor, onShelves, onMonster,
         {isEditMode
           ? <IconCheck size={22} color="#1C1C2E" />
           : <IconPencil size={22} color="#FDF8EF" />}
-        <span>{isEditMode ? 'Done' : 'Edit'}</span>
+        <span style={{ whiteSpace: 'nowrap', fontSize: isEditMode ? 10 : 12 }}>{isEditMode ? 'Stop edit' : 'Edit'}</span>
       </button>
     </div>
   ) : null
@@ -665,11 +665,16 @@ function DecorAddPanel({ isOpen, onSelect, onClose, isMobile = false }) {
 
 // ─── MonsterCustomizeModal ────────────────────────────────────────────────────
 
+const SWAP_DURATION_MS = 1180
+
 function TomaAppearancePreview({
   bodyColor,
   accentColor,
   hat,
   compact = false,
+  clipH,
+  clipBottom = 0,
+  clipScale = 1,
   mouthReactGen = 0,
   shakeGen = 0,
   hatSwapGen = 0,
@@ -678,50 +683,90 @@ function TomaAppearancePreview({
   hatColorKey = 'red',
   hatSwapFromColor = 'red',
   hatSwapToColor = 'red',
+  accessorySwapGen = 0,
+  accessorySwapFrom = 'none',
+  accessorySwapTo = 'none',
+  accessoryColorKey = 'red',
+  accessorySwapFromColor = 'red',
+  accessorySwapToColor = 'red',
   eyeColorKey = 'dark',
   eyeShapeKey = 'round',
   accessory = 'none',
-  accessoryColorKey = 'red',
   onHatSwapComplete,
+  onAccessorySwapComplete,
 }) {
   const headW = compact ? 120 : 140
   const headH = compact ? 122 : 142
   const neckW = compact ? 46 : 54
   const neckH = compact ? 26 : 30
-  const [swapP, setSwapP] = useState(0)
-  const [activeSwap, setActiveSwap] = useState(null)
-  const swapAnimRef = useRef(null)
+  const [hatSwapP, setHatSwapP] = useState(0)
+  const [activeHatSwap, setActiveHatSwap] = useState(null)
+  const hatSwapAnimRef = useRef(null)
+  const [accessorySwapP, setAccessorySwapP] = useState(0)
+  const [activeAccessorySwap, setActiveAccessorySwap] = useState(null)
+  const accessorySwapAnimRef = useRef(null)
 
   useEffect(() => {
     if (hatSwapGen === 0 || hatSwapFrom === hatSwapTo) return
     const swap = { from: hatSwapFrom, to: hatSwapTo, fromColor: hatSwapFromColor, toColor: hatSwapToColor }
-    setActiveSwap(swap)
+    setActiveHatSwap(swap)
     let start = null
-    const duration = 1680
+    const duration = SWAP_DURATION_MS
     const tick = (now) => {
       if (start === null) start = now
       const t = Math.min(1, (now - start) / duration)
-      setSwapP(t)
+      setHatSwapP(t)
       if (t < 1) {
-        swapAnimRef.current = requestAnimationFrame(tick)
+        hatSwapAnimRef.current = requestAnimationFrame(tick)
       } else {
-        setSwapP(0)
-        setActiveSwap(null)
+        setHatSwapP(0)
+        setActiveHatSwap(null)
         onHatSwapComplete?.(swap.to, swap.toColor)
       }
     }
-    if (swapAnimRef.current) cancelAnimationFrame(swapAnimRef.current)
-    setSwapP(0.001)
-    swapAnimRef.current = requestAnimationFrame(tick)
-    return () => { if (swapAnimRef.current) cancelAnimationFrame(swapAnimRef.current) }
+    if (hatSwapAnimRef.current) cancelAnimationFrame(hatSwapAnimRef.current)
+    setHatSwapP(0.001)
+    hatSwapAnimRef.current = requestAnimationFrame(tick)
+    return () => { if (hatSwapAnimRef.current) cancelAnimationFrame(hatSwapAnimRef.current) }
   }, [hatSwapGen, hatSwapFrom, hatSwapTo, hatSwapFromColor, hatSwapToColor, onHatSwapComplete])
 
+  useEffect(() => {
+    if (accessorySwapGen === 0 || accessorySwapFrom === accessorySwapTo) return
+    const swap = { from: accessorySwapFrom, to: accessorySwapTo, fromColor: accessorySwapFromColor, toColor: accessorySwapToColor }
+    setActiveAccessorySwap(swap)
+    let start = null
+    const duration = SWAP_DURATION_MS
+    const tick = (now) => {
+      if (start === null) start = now
+      const t = Math.min(1, (now - start) / duration)
+      setAccessorySwapP(t)
+      if (t < 1) {
+        accessorySwapAnimRef.current = requestAnimationFrame(tick)
+      } else {
+        setAccessorySwapP(0)
+        setActiveAccessorySwap(null)
+        onAccessorySwapComplete?.(swap.to, swap.toColor)
+      }
+    }
+    if (accessorySwapAnimRef.current) cancelAnimationFrame(accessorySwapAnimRef.current)
+    setAccessorySwapP(0.001)
+    accessorySwapAnimRef.current = requestAnimationFrame(tick)
+    return () => { if (accessorySwapAnimRef.current) cancelAnimationFrame(accessorySwapAnimRef.current) }
+  }, [accessorySwapGen, accessorySwapFrom, accessorySwapTo, accessorySwapFromColor, accessorySwapToColor, onAccessorySwapComplete])
+
   const smooth = p => p * p * (3 - 2 * p)
-  const swapping = swapP > 0 && activeSwap !== null
-  const swapFrom = activeSwap?.from ?? hatSwapFrom
-  const swapTo = activeSwap?.to ?? hatSwapTo
-  const swapFromColor = activeSwap?.fromColor ?? hatSwapFromColor
-  const swapToColor = activeSwap?.toColor ?? hatSwapToColor
+  const hatSwapping = hatSwapP > 0 && activeHatSwap !== null
+  const accessorySwapping = accessorySwapP > 0 && activeAccessorySwap !== null
+  const swapping = hatSwapping || accessorySwapping
+  const swapP = Math.max(hatSwapping ? hatSwapP : 0, accessorySwapping ? accessorySwapP : 0)
+  const hatSwapFromKey = activeHatSwap?.from ?? hatSwapFrom
+  const hatSwapToKey = activeHatSwap?.to ?? hatSwapTo
+  const hatSwapFromColorKey = activeHatSwap?.fromColor ?? hatSwapFromColor
+  const hatSwapToColorKey = activeHatSwap?.toColor ?? hatSwapToColor
+  const accessorySwapFromKey = activeAccessorySwap?.from ?? accessorySwapFrom
+  const accessorySwapToKey = activeAccessorySwap?.to ?? accessorySwapTo
+  const accessorySwapFromColorKey = activeAccessorySwap?.fromColor ?? accessorySwapFromColor
+  const accessorySwapToColorKey = activeAccessorySwap?.toColor ?? accessorySwapToColor
 
   let lookUp = 0
   if (swapP <= 0.12) lookUp = smooth(swapP / 0.12)
@@ -732,27 +777,67 @@ function TomaAppearancePreview({
 
   let headHat = hat
   let headHatColor = hatColorKey
-  if (swapping) {
-    if (swapP < 0.14) {
-      headHat = swapFrom
-      headHatColor = swapFromColor
-    } else if (swapP >= 0.9) {
-      headHat = swapTo
-      headHatColor = swapToColor
+  if (hatSwapping) {
+    if (hatSwapP < 0.14) {
+      headHat = hatSwapFromKey
+      headHatColor = hatSwapFromColorKey
+    } else if (hatSwapP >= 0.9) {
+      headHat = hatSwapToKey
+      headHatColor = hatSwapToColorKey
     } else {
       headHat = 'none'
     }
   }
 
-  const showFall = swapFrom !== 'none' && swapP >= 0.14 && swapP < 0.64
-  const fallProgress = showFall ? smooth(Math.min(1, (swapP - 0.14) / 0.42)) : 0
-  const fallY = fallProgress * (compact ? 98 : 116)
-  const fallX = -fallProgress * (compact ? 22 : 28)
-  const fallRot = -fallProgress * 32
+  let headAccessory = accessory
+  let headAccessoryColor = accessoryColorKey
+  if (accessorySwapping) {
+    if (accessorySwapP < 0.14) {
+      headAccessory = accessorySwapFromKey
+      headAccessoryColor = accessorySwapFromColorKey
+    } else if (accessorySwapP >= 0.9) {
+      headAccessory = accessorySwapToKey
+      headAccessoryColor = accessorySwapToColorKey
+    } else {
+      headAccessory = 'none'
+    }
+  }
 
-  const showIncoming = swapTo !== 'none' && swapP >= 0.54 && swapP < 0.9
-  const inProgress = showIncoming ? smooth(Math.min(1, (swapP - 0.54) / 0.3)) : 0
-  const inY = (1 - inProgress) * (compact ? -58 : -68)
+  const neckOverlap = 12
+  const stackH = headH + neckH - neckOverlap
+  const spaceAboveStack = clipH != null ? clipH + clipBottom - stackH : (compact ? 40 : 52)
+
+  const showHatFall = hatSwapping && hatSwapFromKey !== 'none' && hatSwapP >= 0.14 && hatSwapP < 0.64
+  const hatFallProgress = showHatFall ? smooth(Math.min(1, (hatSwapP - 0.14) / 0.42)) : 0
+  const hatFallDistance = clipH != null
+    ? clipH - spaceAboveStack + (compact ? 24 : 32)
+    : (compact ? 98 : 116)
+  const hatFallY = hatFallProgress * hatFallDistance
+  const hatFallX = 0
+  const hatFallRot = hatFallProgress * (compact ? 14 : 18)
+
+  const showHatIncoming = hatSwapping && hatSwapToKey !== 'none' && hatSwapP >= 0.54 && hatSwapP < 0.9
+  const hatInProgress = showHatIncoming ? smooth(Math.min(1, (hatSwapP - 0.54) / 0.3)) : 0
+  const hatInStart = clipH != null
+    ? -(spaceAboveStack + (compact ? 18 : 24))
+    : (compact ? -58 : -68)
+  const hatInY = (1 - hatInProgress) * hatInStart
+
+  const showAccessoryFall = accessorySwapping && accessorySwapFromKey !== 'none' && accessorySwapP >= 0.14 && accessorySwapP < 0.64
+  const accessoryFallProgress = showAccessoryFall ? smooth(Math.min(1, (accessorySwapP - 0.14) / 0.42)) : 0
+  const accessoryFallDistance = clipH != null
+    ? clipH - spaceAboveStack + (compact ? 18 : 26)
+    : (compact ? 78 : 92)
+  const accessoryFallY = accessoryFallProgress * accessoryFallDistance
+  const accessoryFallX = 0
+  const accessoryFallRot = accessoryFallProgress * (compact ? 12 : 16)
+
+  const showAccessoryIncoming = accessorySwapping && accessorySwapToKey !== 'none' && accessorySwapP >= 0.54 && accessorySwapP < 0.9
+  const accessoryInProgress = showAccessoryIncoming ? smooth(Math.min(1, (accessorySwapP - 0.54) / 0.3)) : 0
+  const accessoryInStart = clipH != null
+    ? -(spaceAboveStack + (compact ? 8 : 12))
+    : (compact ? -32 : -38)
+  const accessoryInY = (1 - accessoryInProgress) * accessoryInStart
 
   const hatLayerStyle = {
     position: 'absolute',
@@ -765,7 +850,12 @@ function TomaAppearancePreview({
     zIndex: 4,
   }
 
-  return (
+  const accessoryLayerStyle = {
+    ...hatLayerStyle,
+    zIndex: 3,
+  }
+
+  const previewContent = (
     <div style={{
       animation: swapping ? 'none' : 'tomaBreath 3.5s ease-in-out infinite',
       transformOrigin: 'center bottom',
@@ -787,34 +877,60 @@ function TomaAppearancePreview({
           transform: `rotate(${headTilt}deg)`,
           transformOrigin: '50% 88%',
         }}>
-          {showFall && (
+          {showHatFall && (
             <svg
-              key={`fall-${hatSwapGen}-${swapFrom}`}
+              key={`fall-${hatSwapGen}-${hatSwapFromKey}`}
               viewBox={TOMA_FACE_VIEWBOX}
               fill="none"
               style={{
                 ...hatLayerStyle,
-                overflow: 'visible',
-                transform: `translate(${fallX}px, ${fallY}px) rotate(${fallRot}deg)`,
+                transform: `translate(${hatFallX}px, ${hatFallY}px) rotate(${hatFallRot}deg)`,
                 transformOrigin: '50% 16%',
               }}
             >
-              <MonsterHatGraphic hat={swapFrom} hatColorKey={swapFromColor} />
+              <MonsterHatGraphic hat={hatSwapFromKey} hatColorKey={hatSwapFromColorKey} />
             </svg>
           )}
-          {showIncoming && (
+          {showHatIncoming && (
             <svg
-              key={`in-${hatSwapGen}-${swapTo}`}
+              key={`in-${hatSwapGen}-${hatSwapToKey}`}
               viewBox={TOMA_FACE_VIEWBOX}
               fill="none"
               style={{
                 ...hatLayerStyle,
-                overflow: 'visible',
-                transform: `translateY(${inY}px)`,
+                transform: `translateY(${hatInY}px)`,
                 transformOrigin: '50% 16%',
               }}
             >
-              <MonsterHatGraphic hat={swapTo} hatColorKey={swapToColor} />
+              <MonsterHatGraphic hat={hatSwapToKey} hatColorKey={hatSwapToColorKey} />
+            </svg>
+          )}
+          {showAccessoryFall && (
+            <svg
+              key={`acc-fall-${accessorySwapGen}-${accessorySwapFromKey}`}
+              viewBox={TOMA_FACE_VIEWBOX}
+              fill="none"
+              style={{
+                ...accessoryLayerStyle,
+                transform: `translate(${accessoryFallX}px, ${accessoryFallY}px) rotate(${accessoryFallRot}deg)`,
+                transformOrigin: '50% 55%',
+              }}
+            >
+              <MonsterAccessoryGraphic accessory={accessorySwapFromKey} accessoryColorKey={accessorySwapFromColorKey} />
+            </svg>
+          )}
+          {showAccessoryIncoming && (
+            <svg
+              key={`acc-in-${accessorySwapGen}-${accessorySwapToKey}`}
+              viewBox={TOMA_FACE_VIEWBOX}
+              fill="none"
+              style={{
+                ...accessoryLayerStyle,
+                transform: `translateY(${accessoryInY}px)`,
+                transformOrigin: '50% 55%',
+              }}
+            >
+              <MonsterAccessoryGraphic accessory={accessorySwapToKey} accessoryColorKey={accessorySwapToColorKey} />
             </svg>
           )}
           <div style={{ width: headW, height: headH, lineHeight: 0, position: 'relative', zIndex: 2 }}>
@@ -826,8 +942,8 @@ function TomaAppearancePreview({
               hatColorKey={headHatColor}
               eyeColorKey={eyeColorKey}
               eyeShapeKey={eyeShapeKey}
-              accessory={accessory}
-              accessoryColorKey={accessoryColorKey}
+              accessory={headAccessory}
+              accessoryColorKey={headAccessoryColor}
               mouthReactGen={mouthReactGen}
             />
           </div>
@@ -855,6 +971,30 @@ function TomaAppearancePreview({
       </div>
     </div>
   )
+
+  if (clipH != null) {
+    return (
+      <div style={{
+        position: 'relative',
+        width: '100%',
+        height: clipH,
+        overflow: 'hidden',
+        pointerEvents: 'none',
+      }}>
+        <div style={{
+          position: 'absolute',
+          left: '50%',
+          bottom: -clipBottom,
+          transform: `translateX(-50%) scale(${clipScale})`,
+          transformOrigin: 'center bottom',
+        }}>
+          {previewContent}
+        </div>
+      </div>
+    )
+  }
+
+  return previewContent
 }
 
 function HatOnlyPreview({ hat, hatColorKey = 'red' }) {
@@ -977,7 +1117,34 @@ function HatScrollRow({ children, bleed = 0 }) {
   )
 }
 
-function ColorSwatchRow({ value, onChange, disabled = false, colors: palette = MONSTER_COLORS, getFill = c => c.body, getRing = c => c.accent }) {
+function ColorSwatchRow({ value, onChange, disabled = false, colors: palette = MONSTER_COLORS, getFill = c => c.body, getRing = c => c.accent, scrollable = false, bleed = 0 }) {
+  const swatches = palette.map(c => (
+    <button
+      key={c.key}
+      onClick={() => !disabled && onChange(c.key)}
+      title={c.label}
+      disabled={disabled}
+      style={{
+        width: scrollable ? 36 : '100%',
+        height: scrollable ? 36 : undefined,
+        aspectRatio: scrollable ? undefined : '1',
+        flexShrink: scrollable ? 0 : undefined,
+        borderRadius: '50%',
+        background: getFill(c),
+        border: value === c.key ? `3px solid ${getRing(c)}` : '3px solid transparent',
+        cursor: disabled ? 'default' : 'pointer',
+        boxSizing: 'border-box',
+        opacity: disabled ? 0.35 : 1,
+        boxShadow: value === c.key ? `0 0 0 2px ${getFill(c)}` : 'inset 0 0 0 1px rgba(0,0,0,0.12)',
+        transition: 'border .12s, box-shadow .12s, opacity .12s',
+      }}
+    />
+  ))
+
+  if (scrollable) {
+    return <HatScrollRow bleed={bleed}>{swatches}</HatScrollRow>
+  }
+
   return (
     <div style={{
       display: 'grid',
@@ -986,26 +1153,7 @@ function ColorSwatchRow({ value, onChange, disabled = false, colors: palette = M
       width: '100%',
       marginBottom: 20,
     }}>
-      {palette.map(c => (
-        <button
-          key={c.key}
-          onClick={() => !disabled && onChange(c.key)}
-          title={c.label}
-          disabled={disabled}
-          style={{
-            width: '100%',
-            aspectRatio: '1',
-            borderRadius: '50%',
-            background: getFill(c),
-            border: value === c.key ? `3px solid ${getRing(c)}` : '3px solid transparent',
-            cursor: disabled ? 'default' : 'pointer',
-            boxSizing: 'border-box',
-            opacity: disabled ? 0.35 : 1,
-            boxShadow: value === c.key ? `0 0 0 2px ${getFill(c)}` : 'inset 0 0 0 1px rgba(0,0,0,0.12)',
-            transition: 'border .12s, box-shadow .12s, opacity .12s',
-          }}
-        />
-      ))}
+      {swatches}
     </div>
   )
 }
@@ -1061,51 +1209,66 @@ function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, eyeColor
   const [hatSwapTo, setHatSwapTo] = useState('none')
   const [hatSwapFromColor, setHatSwapFromColor] = useState('red')
   const [hatSwapToColor, setHatSwapToColor] = useState('red')
-  const [settledHat, setSettledHat] = useState(hatKey)
-  const [settledHatColor, setSettledHatColor] = useState(hatColorKey)
+  const [accessorySwapGen, setAccessorySwapGen] = useState(0)
+  const [accessorySwapFrom, setAccessorySwapFrom] = useState('none')
+  const [accessorySwapTo, setAccessorySwapTo] = useState('none')
+  const [accessorySwapFromColor, setAccessorySwapFromColor] = useState('red')
+  const [accessorySwapToColor, setAccessorySwapToColor] = useState('red')
   const colorReadyRef = useRef(false)
   const hatReadyRef = useRef(false)
   const hatColorReadyRef = useRef(false)
   const eyeReadyRef = useRef(false)
   const eyeShapeReadyRef = useRef(false)
   const accessoryReadyRef = useRef(false)
+  const accessoryColorReadyRef = useRef(false)
   const visualHatRef = useRef(hatKey)
   const visualHatColorRef = useRef(hatColorKey)
+  const visualAccessoryRef = useRef(accessoryKey)
+  const visualAccessoryColorRef = useRef(accessoryColorKey)
 
   const handleHatSwapComplete = useCallback((hat, color) => {
     visualHatRef.current = hat
     visualHatColorRef.current = color
-    setSettledHat(hat)
-    setSettledHatColor(color)
   }, [])
 
-  useEffect(() => {
-    if (isOpen) {
-      setDraftColor(colorKey)
-      setDraftHat(hatKey)
-      setDraftHatColor(hatColorKey)
-      setDraftEyeColor(eyeColorKey)
-      setDraftEyeShape(eyeShapeKey)
-      setDraftAccessory(accessoryKey)
-      setDraftAccessoryColor(accessoryColorKey)
-      setActiveTab('body')
-      setSettledHat(hatKey)
-      setSettledHatColor(hatColorKey)
-      colorReadyRef.current = false
-      hatReadyRef.current = false
-      hatColorReadyRef.current = false
-      eyeReadyRef.current = false
-      eyeShapeReadyRef.current = false
-      accessoryReadyRef.current = false
-      visualHatRef.current = hatKey
-      visualHatColorRef.current = hatColorKey
-      setShakeGen(0)
-      setMouthReactGen(0)
-      setHatSwapGen(0)
-      setHatSwapFrom(hatKey)
-      setHatSwapTo(hatKey)
-      setHatSwapToColor(hatColorKey)
-    }
+  const handleAccessorySwapComplete = useCallback((accessory, color) => {
+    visualAccessoryRef.current = accessory
+    visualAccessoryColorRef.current = color
+  }, [])
+
+  useLayoutEffect(() => {
+    if (!isOpen) return
+    setDraftColor(colorKey)
+    setDraftHat(hatKey)
+    setDraftHatColor(hatColorKey)
+    setDraftEyeColor(eyeColorKey)
+    setDraftEyeShape(eyeShapeKey)
+    setDraftAccessory(accessoryKey)
+    setDraftAccessoryColor(accessoryColorKey)
+    setActiveTab('body')
+    colorReadyRef.current = false
+    hatReadyRef.current = false
+    hatColorReadyRef.current = false
+    eyeReadyRef.current = false
+    eyeShapeReadyRef.current = false
+    accessoryReadyRef.current = false
+    accessoryColorReadyRef.current = false
+    visualHatRef.current = hatKey
+    visualHatColorRef.current = hatColorKey
+    visualAccessoryRef.current = accessoryKey
+    visualAccessoryColorRef.current = accessoryColorKey
+    setShakeGen(0)
+    setMouthReactGen(0)
+    setHatSwapGen(0)
+    setHatSwapFrom(hatKey)
+    setHatSwapTo(hatKey)
+    setHatSwapFromColor(hatColorKey)
+    setHatSwapToColor(hatColorKey)
+    setAccessorySwapGen(0)
+    setAccessorySwapFrom(accessoryKey)
+    setAccessorySwapTo(accessoryKey)
+    setAccessorySwapFromColor(accessoryColorKey)
+    setAccessorySwapToColor(accessoryColorKey)
   }, [isOpen, colorKey, hatKey, hatColorKey, eyeColorKey, eyeShapeKey, accessoryKey, accessoryColorKey])
 
   useEffect(() => {
@@ -1139,7 +1302,6 @@ function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, eyeColor
       return
     }
     visualHatColorRef.current = draftHatColor
-    setSettledHatColor(draftHatColor)
   }, [draftHatColor, isOpen])
 
   useEffect(() => {
@@ -1166,8 +1328,23 @@ function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, eyeColor
       accessoryReadyRef.current = true
       return
     }
+    if (visualAccessoryRef.current === draftAccessory) return
+    setAccessorySwapFrom(visualAccessoryRef.current)
+    setAccessorySwapTo(draftAccessory)
+    setAccessorySwapFromColor(visualAccessoryColorRef.current)
+    setAccessorySwapToColor(draftAccessoryColor)
+    setAccessorySwapGen(g => g + 1)
     setMouthReactGen(g => g + 1)
-  }, [draftAccessory, isOpen])
+  }, [draftAccessory, draftAccessoryColor, isOpen])
+
+  useEffect(() => {
+    if (!isOpen) return
+    if (!accessoryColorReadyRef.current) {
+      accessoryColorReadyRef.current = true
+      return
+    }
+    visualAccessoryColorRef.current = draftAccessoryColor
+  }, [draftAccessoryColor, isOpen])
 
   function handleDismiss() {
     onSave(draftColor, draftHat, draftHatColor, draftEyeColor, draftEyeShape, draftAccessory, draftAccessoryColor)
@@ -1225,34 +1402,34 @@ function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, eyeColor
           overflow: 'hidden',
           marginBottom: 20,
         }}>
-          <div style={{
-            position: 'absolute',
-            left: '50%',
-            bottom: isMobile ? -40 : -64,
-            transform: `translateX(-50%) scale(${isMobile ? 0.92 : 0.96})`,
-            transformOrigin: 'center bottom',
-            pointerEvents: 'none',
-          }}>
-            <TomaAppearancePreview
-              bodyColor={preview.body}
-              accentColor={preview.accent}
-              hat={settledHat}
-              hatColorKey={draftHatColor}
-              compact={isMobile}
-              mouthReactGen={mouthReactGen}
-              shakeGen={shakeGen}
-              hatSwapGen={hatSwapGen}
-              hatSwapFrom={hatSwapFrom}
-              hatSwapTo={hatSwapTo}
-              hatSwapFromColor={hatSwapFromColor}
-              hatSwapToColor={hatSwapToColor}
-              eyeColorKey={draftEyeColor}
-              eyeShapeKey={draftEyeShape}
-              accessory={draftAccessory}
-              accessoryColorKey={draftAccessoryColor}
-              onHatSwapComplete={handleHatSwapComplete}
-            />
-          </div>
+          <TomaAppearancePreview
+            bodyColor={preview.body}
+            accentColor={preview.accent}
+            hat={draftHat}
+            hatColorKey={draftHatColor}
+            compact={isMobile}
+            clipH={isMobile ? 132 : 148}
+            clipBottom={isMobile ? 40 : 64}
+            clipScale={isMobile ? 0.92 : 0.96}
+            mouthReactGen={mouthReactGen}
+            shakeGen={shakeGen}
+            hatSwapGen={hatSwapGen}
+            hatSwapFrom={hatSwapFrom}
+            hatSwapTo={hatSwapTo}
+            hatSwapFromColor={hatSwapFromColor}
+            hatSwapToColor={hatSwapToColor}
+            eyeColorKey={draftEyeColor}
+            eyeShapeKey={draftEyeShape}
+            accessory={draftAccessory}
+            accessoryColorKey={draftAccessoryColor}
+            accessorySwapGen={accessorySwapGen}
+            accessorySwapFrom={accessorySwapFrom}
+            accessorySwapTo={accessorySwapTo}
+            accessorySwapFromColor={accessorySwapFromColor}
+            accessorySwapToColor={accessorySwapToColor}
+            onHatSwapComplete={handleHatSwapComplete}
+            onAccessorySwapComplete={handleAccessorySwapComplete}
+          />
         </div>
 
         <StyleTabBar activeTab={activeTab} onChange={setActiveTab} />
@@ -1322,6 +1499,9 @@ function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, eyeColor
               value={draftHatColor}
               onChange={setDraftHatColor}
               disabled={draftHat === 'none'}
+              colors={STYLE_ITEM_COLORS}
+              scrollable
+              bleed={isMobile ? 16 : 28}
             />
           </>
         )}
@@ -1352,6 +1532,9 @@ function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, eyeColor
               value={draftAccessoryColor}
               onChange={setDraftAccessoryColor}
               disabled={draftAccessory === 'none'}
+              colors={STYLE_ITEM_COLORS}
+              scrollable
+              bleed={isMobile ? 16 : 28}
             />
           </>
         )}

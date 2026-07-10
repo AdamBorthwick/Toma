@@ -1,0 +1,8 @@
+<svg width="325" height="331" viewBox="0 0 325 331" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Round glasses  frame #E03E3E (accent placeholder) -->
+  <circle cx="94.5" cy="85.3" r="19" fill="none" stroke="#E03E3E" stroke-width="3.5"/>
+  <circle cx="230" cy="85.3" r="19" fill="none" stroke="#E03E3E" stroke-width="3.5"/>
+  <path d="M113.5 85.3 H211" stroke="#E03E3E" stroke-width="3" stroke-linecap="round"/>
+  <line x1="74" y1="85.3" x2="63" y2="82" stroke="#E03E3E" stroke-width="3" stroke-linecap="round"/>
+  <line x1="251" y1="85.3" x2="262" y2="82" stroke="#E03E3E" stroke-width="3" stroke-linecap="round"/>
+</svg>

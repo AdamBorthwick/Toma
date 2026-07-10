@@ -361,6 +361,10 @@ input:-webkit-autofill:focus { -webkit-box-shadow: 0 0 0 30px white inset !impor
   margin-bottom: 20px;
   overflow: visible;
 }
+.style-hat-bleed .scroll-fade-scroll--x {
+  padding-top: 0;
+  padding-bottom: 0;
+}
 @keyframes titlePulse {
   0%, 100% { opacity: 0.3; }
   50% { opacity: 0.85; }

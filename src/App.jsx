@@ -1,9 +1,10 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
+import { flushSync } from 'react-dom'
 import { resolveUserId, loadShelfByUserId, loadShelfByShareId, loadReviews, persistShelf, getShareId, setUsername as saveUsername, getUsername, getMonsterLook, setMonsterLook, loadInventory, addInventoryBook, addInventoryStack, addInventoryDecor, removeInventoryItem, DbError } from './db.js'
 import { DialogBackdrop, DialogCard, DialogTitle, DialogDescription, DialogActions, FieldLabel, TextInput, Button } from './components/ui/index.js'
 import { SLOT_W, NUM_SLOTS, SHELF_H, BOOKCASE_LEFT, BOOKCASE_WIDTH, isRotatableDragType, PLATE_EM_BASE, SURFACE_LABEL_FONT_EM } from './lib/layout.js'
 import { MOBILE_ZOOMED_IN_MONSTER_BIAS } from './lib/mobileZoom.js'
-import { setGhostPos, slotsOverlap, findFreeZone, computeArm, computeFingerPaths, titleT, DEFAULT_ARM_TARGET } from './lib/geometry.js'
+import { setGhostPos, slotsOverlap, findFreeZone, computeArm, computeFingerPaths, titleT, DEFAULT_ARM_TARGET, targetFromFingerTip } from './lib/geometry.js'
 import { computeMobileScale, computeStageScale } from './lib/scale.js'
 import { mobileShelfScrollBounds } from './lib/scroll.js'
 import { fetchDefaultShelfData } from './lib/openLibrary.js'
@@ -11,7 +12,7 @@ import { SHELVES, getShelfColors, reconstructShelf } from './data/shelves.jsx'
 import { getMonsterColors } from './data/monster.jsx'
 import { IconTrash, IconRotate } from './components/icons.jsx'
 import { CaveBackground, PoofSmoke, TomaHead } from './components/scene.jsx'
-import { getHeadIntroDuration, getHatOverhangAboveHeadPx } from './components/hats.jsx'
+import { getHeadIntroDuration, getHeadIntroViewportStartTop, getHeadIntroStartBelow, getHatOverhangAboveHeadPx } from './components/hats.jsx'
 import { EditableShelfRow, SavedShelfRow, DragGhost, ShelfPlate, ShelfRow } from './components/shelfRows.jsx'
 import { SpineLabel } from './components/SpineLabel.jsx'
 import { getSpineDims } from './lib/spineTypography.js'
@@ -122,6 +123,7 @@ export default function App() {
   const [poofActive, setPoofActive]             = useState(false)
   const [headIntroTop, setHeadIntroTop]         = useState(null)
   const [headIntroLeft, setHeadIntroLeft]       = useState(null)
+  const [showStageHead, setShowStageHead]       = useState(true)
   const [username, setUsername]             = useState('')
   const [monsterColorKey, setMonsterColorKey] = useState('green')
   const [monsterHatKey, setMonsterHatKey]     = useState('none')
@@ -136,6 +138,9 @@ export default function App() {
   const [dbError, setDbError]               = useState(null)
   const [irisOff, setIrisOff]               = useState({ x: 0, y: 0 })
   const headRef = useRef(null)
+  const headEmergeRafRef = useRef(null)
+  const titleHeadPendingRef = useRef(false)
+  const titleHeadTimerRef = useRef(null)
   const deleteBtnRef = useRef(null)
   const [deleteBtnRect, setDeleteBtnRect] = useState(null)
   const rotateBtnRef = useRef(null)
@@ -148,7 +153,9 @@ export default function App() {
   const [headerVisible, setHeaderVisible]   = useState(true)
   const [nearTop, setNearTop]               = useState(false)
   const [surfacing, setSurfacing]           = useState(false)
+  const [surfaceScrolling, setSurfaceScrolling] = useState(false)
   const [titleFromSurface, setTitleFromSurface] = useState(false)
+  const surfaceAnimCleanupRef = useRef(null)
   const [isMobile, setIsMobile]             = useState(() => window.innerWidth < 768)
   // Books stay proportional (fixed shelf height) at every breakpoint; on mobile we
   // deliver "one shelf at a time" via a larger zoom + horizontal pan, not by stretching shelves.
@@ -179,7 +186,7 @@ export default function App() {
   const skipAutoSaveRef = useRef(false)
 
   // ── Edit mode ──────────────────────────────────────────────────────────────
-  const [isEditMode, setIsEditMode] = useState(false)
+  const [isEditMode, setIsEditMode] = useState(true)
   const [shelfContents, setShelfContents] = useState([])
   const [editDragging, setEditDragging] = useState(null)
   // editDragging = { type, slotWidth, book?, books?, sourceItemId? }
@@ -195,7 +202,7 @@ export default function App() {
   const shelfInnerRefs = useRef([])
   const ghostRef = useRef(null)
   const editDraggingRef = useRef(null)
-  const isEditModeRef = useRef(false)
+  const isEditModeRef = useRef(true)
   const shelfContentsRef = useRef([])
   const dropTargetRef = useRef(null)
   const nextItemId = useRef(1)
@@ -246,20 +253,54 @@ export default function App() {
     return m ? m.rectZoom : 1
   }
 
-  // Bookcase-layer `top` so the head's visual center sits at the viewport vertical center.
-  function headIntroViewportCenterTop(headH = HEAD_RENDER_H) {
+  // Bookcase-layer `top` for intro — viewport-centered, with tall hats kept off-screen above.
+  function headIntroViewportCenterTop(hatKey = monsterHatKey, headH = HEAD_RENDER_H) {
     const scrollEl = scrollRef.current
-    const viewportCenterY = scrollEl
-      ? scrollEl.getBoundingClientRect().top + scrollEl.clientHeight / 2
+    const scrollRect = scrollEl ? scrollEl.getBoundingClientRect() : null
+    const viewportCenterY = scrollRect
+      ? scrollRect.top + scrollEl.clientHeight / 2
       : window.innerHeight / 2
+    const viewportTop = scrollRect ? scrollRect.top : 0
     const m = stageMetrics()
     const z = scaleRef.current > 0 ? scaleRef.current : 1
-    const stageTop = m ? m.top : (scrollEl ? scrollEl.getBoundingClientRect().top : 0)
+    const stageTop = m ? m.top : viewportTop
     const stageSy = m ? m.sy : z
-    const stageY = (viewportCenterY - stageTop) / stageSy
-    const bookcaseShift = bookcaseShiftRef.current
-    return Math.round(stageY - bookcaseShift - headH * 0.5)
+    return getHeadIntroViewportStartTop(hatKey, {
+      viewportCenterY,
+      viewportTop,
+      stageTop,
+      stageSy,
+      bookcaseShift: bookcaseShiftRef.current,
+      headH,
+    })
   }
+
+  const runHeadEmergence = useCallback((startTop, { unlockScroll = false } = {}) => {
+    if (headEmergeRafRef.current) cancelAnimationFrame(headEmergeRafRef.current)
+    const headEndTop = HEAD_INTRO_END_TOP
+    const dur = getHeadIntroDuration(monsterHatKey, headEndTop, startTop)
+    setHeadIntroTop(startTop)
+    setHeadIntroLeft(580)
+    let t0 = null
+    function frameEmerge(ts) {
+      if (!t0) t0 = ts
+      const p = Math.min(1, (ts - t0) / dur)
+      const ep = headIntroEmergenceEase(p)
+      setHeadIntroTop(Math.round(startTop + (headEndTop - startTop) * ep))
+      if (p < 1) {
+        headEmergeRafRef.current = requestAnimationFrame(frameEmerge)
+      } else {
+        headEmergeRafRef.current = null
+        setHeadIntroTop(null)
+        setHeadIntroLeft(null)
+        if (unlockScroll) {
+          document.body.style.overflow = ''
+          setScrollUnlocked(true)
+        }
+      }
+    }
+    headEmergeRafRef.current = requestAnimationFrame(frameEmerge)
+  }, [monsterHatKey])
 
   // getBoundingClientRect of an element inside the zoomed stage, normalized to visual
   // space so it can be compared against event clientX/clientY.
@@ -273,7 +314,7 @@ export default function App() {
     }
   }
 
-  function clientToStage(clientX, clientY, aimHand = false) {
+  function clientToStage(clientX, clientY, aimFinger = false, gripExtend = 0) {
     const m = stageMetrics()
     if (!m) return null
 
@@ -289,7 +330,11 @@ export default function App() {
     // centering, and the arm/head live inside that layer.
     let y = (clientY - m.top) / m.sy - bookcaseShiftRef.current
 
-    if (aimHand) { x -= 20; y -= 24 }
+    if (aimFinger) {
+      const aim = targetFromFingerTip(x, y, gripExtend)
+      x = aim.x
+      y = aim.y
+    }
     const floor = shelfBookcaseBottom()
     y = Math.max(196, Math.min(floor + 36, y))
     return { x, y }
@@ -1092,7 +1137,8 @@ export default function App() {
       setMonsterAccessoryColorKey(look.accessoryColorKey)
       setInventory(inv)
       if (isNewUser) setShowOnboarding(true)
-      if (_startEdit || isNewUser) { isEditModeRef.current = true; setIsEditMode(true) }
+      isEditModeRef.current = true
+      setIsEditMode(true)
       if (_skipIntro || _startEdit) window.history.replaceState({}, '', window.location.pathname)
     }
 
@@ -1104,6 +1150,8 @@ export default function App() {
       }
       if (cancelled) return
       setIsViewOnly(true)
+      isEditModeRef.current = false
+      setIsEditMode(false)
       setShelfName(result.name)
       const { shelfConfigs: cfgs, shelfContents: cnts } = reconstructShelf(result)
       setShelfConfigs(cfgs)
@@ -1266,50 +1314,36 @@ export default function App() {
 
     // Mode 1 (from title intro): no poof — reveal immediately, head rises from the
     // vertical center of the viewport up to the shelf.
-    let emergeRaf = null
-
     setBookcaseRevealed(true)
 
     requestAnimationFrame(() => {
-      setHeadIntroTop(headIntroViewportCenterTop())
+      setHeadIntroTop(headIntroViewportCenterTop(monsterHatKey))
       setHeadIntroLeft(580)
     })
 
     const t1 = setTimeout(() => {
-      const startTop = headIntroViewportCenterTop()
-      const headEndTop = HEAD_INTRO_END_TOP
-      const dur = getHeadIntroDuration(monsterHatKey, headEndTop, startTop)
-
-      setHeadIntroTop(startTop)
-      setHeadIntroLeft(580)
-
-      let t0 = null
-      function frameEmerge(ts) {
-        if (!t0) t0 = ts
-        const p  = Math.min(1, (ts - t0) / dur)
-        const ep = headIntroEmergenceEase(p)
-        setHeadIntroTop(Math.round(startTop + (headEndTop - startTop) * ep))
-        if (p < 1) {
-          emergeRaf = requestAnimationFrame(frameEmerge)
-        } else {
-          emergeRaf = null
-          setHeadIntroTop(null)
-          setHeadIntroLeft(null)
-          document.body.style.overflow = ''
-          setScrollUnlocked(true)
-        }
-      }
-      emergeRaf = requestAnimationFrame(frameEmerge)
+      const startTop = headIntroViewportCenterTop(monsterHatKey)
+      runHeadEmergence(startTop, { unlockScroll: true })
     }, 200)
 
     return () => {
       clearTimeout(t1)
-      if (emergeRaf) cancelAnimationFrame(emergeRaf)
+      if (headEmergeRafRef.current) cancelAnimationFrame(headEmergeRafRef.current)
       setHeadIntroTop(null)
       setHeadIntroLeft(null)
       document.body.style.overflow = ''
     }
-  }, [isDbLoaded, showOnboarding, showTitle, monsterHatKey]) // eslint-disable-line
+  }, [isDbLoaded, showOnboarding, showTitle, monsterHatKey, runHeadEmergence]) // eslint-disable-line
+
+  // Desktop title dismiss: keep stage head hidden until the title is gone, then rise
+  // from behind the shelf so tall hats never peek in during the scroll transition.
+  useEffect(() => {
+    if (!bookcaseRevealed || showTitle || !titleHeadPendingRef.current) return
+    titleHeadPendingRef.current = false
+    const startTop = getHeadIntroStartBelow(monsterHatKey)
+    setShowStageHead(true)
+    requestAnimationFrame(() => runHeadEmergence(startTop))
+  }, [showTitle, bookcaseRevealed, monsterHatKey, runHeadEmergence])
 
   // Title scroll path reveals the bookcase before dismiss; unlock scroll once the title
   // DOM is gone so desktop isn't stuck with overflow:hidden.
@@ -1963,7 +1997,7 @@ export default function App() {
       setDropTarget(found)
 
       // Drive the real Sprout arm to the finger — ghost clamping is visual only.
-      const pos = clientToStage(e.clientX, e.clientY, onTouchLayout)
+      const pos = clientToStage(e.clientX, e.clientY, true, editGripExtendRef.current)
       if (pos) {
         armFollow(pos, { smooth: onTouchLayout })
         setEditDragArmVisible(true)
@@ -2164,7 +2198,7 @@ export default function App() {
     const placeArm = () => {
       const cx = viewportMouseRef.current?.x ?? e.clientX
       const cy = viewportMouseRef.current?.y ?? e.clientY
-      const pos = clientToStage(cx, cy, isMobileRef.current)
+      const pos = clientToStage(cx, cy, true, editGripExtendRef.current)
       if (!pos) return
       snapArmTarget(pos)
       setEditDragArmVisible(true)
@@ -2231,7 +2265,7 @@ export default function App() {
     const placeArm = () => {
       const cx = viewportMouseRef.current?.x ?? e.clientX
       const cy = viewportMouseRef.current?.y ?? e.clientY
-      const pos = clientToStage(cx, cy, isMobileRef.current)
+      const pos = clientToStage(cx, cy, true, editGripExtendRef.current)
       if (!pos) return
       snapArmTarget(pos)
       setEditDragArmVisible(true)
@@ -2445,8 +2479,8 @@ export default function App() {
     : { w: CLONE_W, h: safeShelfH }
   const CLONE_H = cloneDims.h
   const showClone = grabbedBook && (grabPhase === 'grabbing' || grabPhase === 'retracting')
-  const cloneLeft = arm.handTipX + 2 - CLONE_W
-  const cloneTop  = arm.handY - 24 - CLONE_H / 2
+  const cloneLeft = arm.fingerTipX + handShift - CLONE_W
+  const cloneTop  = arm.fingerTipY - CLONE_H / 2
 
   // Stage height: tall enough for the bookcase (plus its centering shift), and on mobile
   // stretched to fill the viewport at the zoomed-out scale so the cave ceiling stays at
@@ -2460,25 +2494,62 @@ export default function App() {
   const armSvgH = stageHeight
 
   function handleSurface() {
-    setSurfacing(true)
-    setTitleFromSurface(true)
-    setShowTitle(true)
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      if (!scrollRef.current) return
-      const offset = Math.round(window.innerHeight * (1 + GAP_VH / 100))
-      // Set overflow directly before scrollTop so the jump is reliable before React re-renders
-      scrollRef.current.style.overflowY = 'auto'
-      scrollRef.current.style.overflowX = 'hidden'
-      scrollRef.current.scrollTop = offset
-      scrollRef.current.scrollTo({ top: 0, behavior: 'smooth' })
+    surfaceAnimCleanupRef.current?.()
+    surfaceAnimCleanupRef.current = null
+
+    flushSync(() => {
+      setSurfacing(true)
+      setTitleFromSurface(true)
+      setShowTitle(true)
+      setSurfaceScrolling(true)
       setScrollUnlocked(true)
-    }))
-    setTimeout(() => {
+      setHeadIntroTop(null)
+      setHeadIntroLeft(null)
+      titleHeadPendingRef.current = false
+    })
+
+    const el = scrollRef.current
+    if (!el) return
+
+    const offset = Math.round(window.innerHeight * (1 + GAP_VH / 100))
+    el.style.overflowY = 'auto'
+    el.style.overflowX = 'hidden'
+    document.documentElement.style.overflow = ''
+    document.body.style.overflow = ''
+    el.scrollTop = offset
+
+    let done = false
+    let raf1 = 0
+    let raf2 = 0
+    let timeoutId = null
+
+    function finish() {
+      if (done) return
+      done = true
+      surfaceAnimCleanupRef.current = null
       setBookcaseRevealed(false)
       setScrollUnlocked(false)
       setSurfacing(false)
-      if (scrollRef.current) scrollRef.current.scrollTop = 0
-    }, 900)
+      setSurfaceScrolling(false)
+      el.scrollTop = 0
+    }
+
+    function onScrollEnd() { finish() }
+
+    raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        el.addEventListener('scrollend', onScrollEnd, { once: true })
+        timeoutId = setTimeout(finish, 1000)
+        el.scrollTo({ top: 0, behavior: 'smooth' })
+      })
+    })
+
+    surfaceAnimCleanupRef.current = () => {
+      cancelAnimationFrame(raf1)
+      if (raf2) cancelAnimationFrame(raf2)
+      if (timeoutId) clearTimeout(timeoutId)
+      el.removeEventListener('scrollend', onScrollEnd)
+    }
   }
 
   function handleReveal() {
@@ -2488,29 +2559,20 @@ export default function App() {
     // The intro effect will skip Mode 1 because bookcaseRevealed is already true.
     if (isDbLoaded && !bookcaseRevealed) {
       setBookcaseRevealed(true)
+      const hiddenTop = getHeadIntroStartBelow(monsterHatKey)
+      setHeadIntroTop(hiddenTop)
       setHeadIntroLeft(580)
-      // Start head emergence ~600ms in — roughly when the scroll reaches the shelf.
-      // Measure start position at kickoff so it stays vertically centered in the viewport.
-      setTimeout(() => {
-        const startTop = headIntroViewportCenterTop()
-        const headEndTop = HEAD_INTRO_END_TOP
-        const dur = getHeadIntroDuration(monsterHatKey, headEndTop, startTop)
-        setHeadIntroTop(startTop)
-        let t0 = null
-        function frameEmerge(ts) {
-          if (!t0) t0 = ts
-          const p = Math.min(1, (ts - t0) / dur)
-          const ep = headIntroEmergenceEase(p)
-          setHeadIntroTop(Math.round(startTop + (headEndTop - startTop) * ep))
-          if (p < 1) {
-            requestAnimationFrame(frameEmerge)
-          } else {
-            setHeadIntroTop(null)
-            setHeadIntroLeft(null)
-          }
-        }
-        requestAnimationFrame(frameEmerge)
-      }, 600)
+      if (isMobileRef.current) {
+        setShowStageHead(true)
+        if (titleHeadTimerRef.current) clearTimeout(titleHeadTimerRef.current)
+        titleHeadTimerRef.current = setTimeout(() => {
+          titleHeadTimerRef.current = null
+          runHeadEmergence(hiddenTop)
+        }, 600)
+      } else {
+        titleHeadPendingRef.current = true
+        setShowStageHead(false)
+      }
     }
 
     requestAnimationFrame(() => {
@@ -2541,9 +2603,15 @@ export default function App() {
     if (!showTitle && scrollRef.current) scrollRef.current.scrollTop = 0
   }, [showTitle])
 
+  // Surface → title idle: pin scroll at 0 before paint so the cave layer never peeks through.
+  useLayoutEffect(() => {
+    if (!showTitle || !titleFromSurface || scrollUnlocked || surfaceScrolling) return
+    if (scrollRef.current) scrollRef.current.scrollTop = 0
+  }, [showTitle, titleFromSurface, scrollUnlocked, surfaceScrolling])
+
   // Idle title: lock the scrollport (tall gap + stage sit below for the Start transition).
   useLayoutEffect(() => {
-    if (!showTitle || scrollUnlocked) return
+    if (!showTitle || scrollUnlocked || surfaceScrolling) return
     const el = scrollRef.current
     if (el) el.scrollTop = 0
     const prevHtml = document.documentElement.style.overflow
@@ -2554,7 +2622,7 @@ export default function App() {
       document.documentElement.style.overflow = prevHtml
       document.body.style.overflow = prevBody
     }
-  }, [showTitle, scrollUnlocked])
+  }, [showTitle, scrollUnlocked, surfaceScrolling])
 
   if (dbError) {
     return (
@@ -2595,8 +2663,9 @@ export default function App() {
   const mobileScrollNeeded = isMobile && bookcaseRevealed && !showTitle && maxScrollTopAt(scale) > 1
   const mobileScrollLocked = isMobile && bookcaseRevealed && !showTitle && !mobileScrollNeeded
   const mobileEdgeScroll = mobileScrollNeeded && !editDragging && !uiOverlayOpen
-  const pageCanScrollY = titleRevealScrolling || (bookcaseRevealed && !showTitle && (!isMobile || mobileScrollNeeded))
-  const titleScrollLocked = showTitle && !scrollUnlocked
+  const pageCanScrollY = titleRevealScrolling || surfaceScrolling
+    || (bookcaseRevealed && !showTitle && (!isMobile || mobileScrollNeeded))
+  const titleScrollLocked = showTitle && !scrollUnlocked && !surfaceScrolling
   const mobileNoTouchScroll = !uiOverlayOpen && (mobileScrollLocked || mobileEdgeScroll)
 
   return (
@@ -2609,7 +2678,7 @@ export default function App() {
       overscrollBehavior: (titleScrollLocked || mobileScrollLocked) ? 'none' : undefined,
       overscrollBehaviorX: 'none',
       touchAction: titleScrollLocked ? 'none' : (mobileNoTouchScroll ? 'none' : undefined),
-      background: '#223152',
+      background: showTitle ? '#254CA4' : '#223152',
     }}>
       {showTitle && (
         <>
@@ -2627,11 +2696,13 @@ export default function App() {
             accessory={monsterAccessoryKey}
             accessoryColorKey={monsterAccessoryColorKey}
           />
+          {(!titleFromSurface || scrollUnlocked || surfaceScrolling) && (
           <div className="gap-viewport" style={{
             width: '100%',
             background: 'linear-gradient(to bottom, #223152, #19243D)',
             overflow: 'hidden',
           }} />
+          )}
         </>
       )}
       <div
@@ -2643,7 +2714,7 @@ export default function App() {
         // flex-start so horizontal pan stays within the bookshelf clamp.
         width: (isMobile && zoomedIn) ? 'max-content' : '100%',
         minHeight: isMobile ? undefined : '100vh',
-        display: 'flex',
+        display: (showTitle && !scrollUnlocked && !surfaceScrolling) ? 'none' : 'flex',
         justifyContent: (isMobile && zoomedIn) ? 'flex-start' : 'center', alignItems: 'flex-start',
         background: '#223152',
         fontFamily: "'Manrope', sans-serif",
@@ -2723,7 +2794,8 @@ export default function App() {
             />
           </div>
 
-          {/* creature head */}
+          {/* creature head — hidden on desktop during title scroll so tall hats never peek in */}
+          {showStageHead && (
           <div ref={headRef} style={{
             position: 'absolute',
             left: renderHeadLeft, top: renderHeadTop,
@@ -2762,6 +2834,7 @@ export default function App() {
               />
             </div>
           </div>
+          )}
 
           {/* bookshelf */}
           <div style={{ position: 'absolute', left: 228, top: 178, width: 624, zIndex: 2 }}>
@@ -2862,6 +2935,7 @@ export default function App() {
           </div>}{/* end bookcaseRevealed */}
 
         </div>
+
       {/* header bar — desktop only; mobile owners use the footer, viewers use the view-only footer */}
       {bookcaseRevealed && !isMobile && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px 10px', zIndex: 9, pointerEvents: 'none', background: 'transparent', transform: (headerVisible && !surfacing) ? 'translateY(0)' : 'translateY(-120%)', transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)' }}>
@@ -2898,7 +2972,7 @@ export default function App() {
                     transition: 'left 0.18s cubic-bezier(.4,0,.2,1)',
                   }}/>
                 </div>
-                Edit mode
+                {isEditMode ? 'Stop edit' : 'Edit mode'}
               </button>
             )}
           </div>

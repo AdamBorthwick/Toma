@@ -1,0 +1,6 @@
+<svg width="325" height="331" viewBox="0 0 325 331" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Eyepatch (right eye)  primary #FF6B6B, accent #E03E3E -->
+  <path d="M 72 68 Q 145 52 222 68" fill="none" stroke="#E03E3E" stroke-width="3" stroke-linecap="round"/>
+  <ellipse cx="230" cy="85.3" rx="26" ry="18" fill="#FF6B6B" stroke="#E03E3E" stroke-width="2.5"/>
+  <circle cx="220.9" cy="81.7" r="3.5" fill="rgba(255,255,255,0.22)"/>
+</svg>

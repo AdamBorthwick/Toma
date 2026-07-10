@@ -54,7 +54,7 @@ function TitleScreen({
   const [isNear, setIsNear] = useState(false)
   const [contentReady, setContentReady] = useState(!fromSurface)
   const [contentEntered, setContentEntered] = useState(false)
-  const [monsterRisen, setMonsterRisen] = useState(!fromSurface)
+  const [monsterRisen, setMonsterRisen] = useState(false)
 
   useEffect(() => {
     const MAX = 7
@@ -84,10 +84,19 @@ function TitleScreen({
       }, 700)
       return () => { clearTimeout(t1); clearTimeout(t2) }
     }
-    // Startup: slide content in from above immediately on mount
     const raf = requestAnimationFrame(() => setContentEntered(true))
-    return () => cancelAnimationFrame(raf)
-  }, []) // eslint-disable-line
+    const isMobileTitle = window.innerWidth < 768
+    let riseTimer = null
+    if (isMobileTitle) {
+      riseTimer = setTimeout(() => {
+        requestAnimationFrame(() => requestAnimationFrame(() => setMonsterRisen(true)))
+      }, 900)
+    }
+    return () => {
+      cancelAnimationFrame(raf)
+      if (riseTimer) clearTimeout(riseTimer)
+    }
+  }, [fromSurface])
 
   function handleClick() {
     if (exitPhase) return
@@ -144,7 +153,7 @@ function TitleScreen({
           <svg width="100%" viewBox="0 0 325 331" fill="none">
             <path d={BODY} fill={bodyColor} />
           </svg>
-          {hat !== 'none' && (
+          {hat !== 'none' && monsterRisen && (
             <div style={{
               position: 'absolute', left: 0, top: 0, width: '100%',
             }}>

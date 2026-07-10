@@ -73,6 +73,27 @@ function findFreeZone(items, centre, sw, excl) {
 // so Toma's head parks at headTop ≈ 108 above the top board.
 const DEFAULT_ARM_TARGET = { x: 520, y: 280 }
 
+// Index-finger tip in hand-local coords; hand origin sits at (handTipX, handY).
+const INDEX_FINGER_TIP_LOCAL = { x: 2, y: -24 }
+const HAND_TIP_X_OFFSET = 20
+const HAND_Y_FROM_ELBOW = 24
+const GRIP_HAND_SHIFT = -32
+// Positive = finger aims right of the cursor so the palm/hand reads to the left of it.
+const HAND_CURSOR_BIAS_X = 28
+
+// Stage target (tx, ty) → finger tip. gripExtend 0→1 applies the edit/grab hand shift.
+function fingerTipOffsetFromTarget(gripExtend = 0) {
+  return {
+    x: HAND_TIP_X_OFFSET + INDEX_FINGER_TIP_LOCAL.x + GRIP_HAND_SHIFT * gripExtend,
+    y: 0,
+  }
+}
+
+function targetFromFingerTip(tipX, tipY, gripExtend = 0) {
+  const off = fingerTipOffsetFromTarget(gripExtend)
+  return { x: tipX - off.x + HAND_CURSOR_BIAS_X, y: tipY }
+}
+
 function computeArm(target, retractMode = 0, returnProgress = 0, maxElbowY = 9999, minTx = 270, maxTx = 786) {
   const rawTx = target ? target.x : DEFAULT_ARM_TARGET.x
   const tx = retractMode > 0
@@ -85,15 +106,17 @@ function computeArm(target, retractMode = 0, returnProgress = 0, maxElbowY = 999
   // Shoulder slides from behind-shelf position toward elbow, making arm parallel
   const Sx = (elbowX - L) + retractMode * (850 - (elbowX - L))
   const Sy = Math.max(202, elbowY - L) + retractMode * (elbowY - Math.max(202, elbowY - L))
-  const handTipX = tx + 20
+  const handTipX = tx + HAND_TIP_X_OFFSET
   const faX1 = handTipX + 92
-  const handY = elbowY + 24
+  const handY = elbowY + HAND_Y_FROM_ELBOW
   return {
     uaPath: `M ${Sx} ${Sy} L ${elbowX} ${elbowY}`,
     faPath: `M ${faX1} ${handY} L ${elbowX} ${elbowY}`,
     handTransform: `translate(${handTipX} ${handY})`,
     elbowX, elbowY, Sx, Sy,
     handTipX, handY,
+    fingerTipX: handTipX + INDEX_FINGER_TIP_LOCAL.x,
+    fingerTipY: handY + INDEX_FINGER_TIP_LOCAL.y,
   }
 }
 
@@ -114,4 +137,4 @@ function titleT(title) {
 }
 
 
-export { GHOST_LIFT, setGhostPos, slotsOverlap, freeZoneAt, findFreeZone, computeArm, computeFingerPaths, titleT, DEFAULT_ARM_TARGET }
+export { GHOST_LIFT, setGhostPos, slotsOverlap, freeZoneAt, findFreeZone, computeArm, computeFingerPaths, titleT, DEFAULT_ARM_TARGET, targetFromFingerTip, fingerTipOffsetFromTarget, INDEX_FINGER_TIP_LOCAL, GRIP_HAND_SHIFT }

@@ -1,5 +1,5 @@
 import { supabase } from './supabase.js'
-import { normalizeHatKey, normalizeEyeColorKey, normalizeEyeShapeKey, normalizeAccessoryKey, normalizeAccessoryColorKey, MONSTER_LOOK_DEFAULTS } from './data/monster.jsx'
+import { normalizeHatKey, normalizeHatColorKey, normalizeEyeColorKey, normalizeEyeShapeKey, normalizeAccessoryKey, normalizeAccessoryColorKey, MONSTER_LOOK_DEFAULTS } from './data/monster.jsx'
 
 // ── Errors ────────────────────────────────────────────────────────────────────
 
@@ -426,14 +426,16 @@ export async function getUsername(userId) {
 
 function rowToMonsterLook(row) {
   if (!row) return { ...MONSTER_LOOK_DEFAULTS }
+  const hatKey = normalizeHatKey(row.hat_key ?? MONSTER_LOOK_DEFAULTS.hatKey)
+  const accessoryKey = normalizeAccessoryKey(row.accessory_key ?? MONSTER_LOOK_DEFAULTS.accessoryKey)
   return {
     colorKey: row.color_key ?? MONSTER_LOOK_DEFAULTS.colorKey,
-    hatKey: normalizeHatKey(row.hat_key ?? MONSTER_LOOK_DEFAULTS.hatKey),
-    hatColorKey: row.hat_color_key ?? MONSTER_LOOK_DEFAULTS.hatColorKey,
+    hatKey,
+    hatColorKey: normalizeHatColorKey(row.hat_color_key ?? MONSTER_LOOK_DEFAULTS.hatColorKey, hatKey),
     eyeColorKey: normalizeEyeColorKey(row.eye_color_key ?? MONSTER_LOOK_DEFAULTS.eyeColorKey),
     eyeShapeKey: normalizeEyeShapeKey(row.eye_shape_key ?? MONSTER_LOOK_DEFAULTS.eyeShapeKey),
-    accessoryKey: normalizeAccessoryKey(row.accessory_key ?? MONSTER_LOOK_DEFAULTS.accessoryKey),
-    accessoryColorKey: normalizeAccessoryColorKey(row.accessory_color_key ?? MONSTER_LOOK_DEFAULTS.accessoryColorKey),
+    accessoryKey,
+    accessoryColorKey: normalizeAccessoryColorKey(row.accessory_color_key ?? MONSTER_LOOK_DEFAULTS.accessoryColorKey, accessoryKey),
   }
 }
 

@@ -1,139 +1,238 @@
-// Accessory overlays for Toma's face (glasses, facial hair, eyepatch, etc.)
+// Accessory overlays for Toma's face — loaded from src/assets/accessories SVGs.
 
+import { useId, useMemo } from 'react'
 import { getAccessoryColors } from '../data/monster.jsx'
 
-const LENS = 'rgba(30,30,50,0.55)'
+import roundGlassesSvg from '../assets/accessories/Round Glasses.svg?raw'
+import roundGlassesPreview from '../assets/accessories/Round Glasses, preview.svg?raw'
+import squareGlassesSvg from '../assets/accessories/Square Glasses.svg?raw'
+import squareGlassesPreview from '../assets/accessories/Square Glasses, preview.svg?raw'
+import rectangleGlassesSvg from '../assets/accessories/Rectangle Glasses.svg?raw'
+import rectangleGlassesPreview from '../assets/accessories/Rectangle Glasses, preview.svg?raw'
+import rectangleShadesSvg from '../assets/accessories/Rectangle Shades.svg?raw'
+import rectangleShadesPreview from '../assets/accessories/Rectangle Glasses Shades, preview.svg?raw'
+import sunglassesSvg from '../assets/accessories/sunglasses.svg?raw'
+import sunglassesPreview from '../assets/accessories/sunglasses preview.svg?raw'
+import readingBigSvg from '../assets/accessories/Reading Glasses Big.svg?raw'
+import readingBigPreview from '../assets/accessories/Reading Glasses Big, preview.svg?raw'
+import monacleSvg from '../assets/accessories/Monacle.svg?raw'
+import monaclePreview from '../assets/accessories/Monacle, preview.svg?raw'
+import moustacheSvg from '../assets/accessories/moustache.svg?raw'
+import moustachePreview from '../assets/accessories/moustache preview.svg?raw'
+import beardSvg from '../assets/accessories/beard.svg?raw'
+import goateeSvg from '../assets/accessories/Goutee.svg?raw'
+import goateePreview from '../assets/accessories/Goutee preview.svg?raw'
+import eyepatchSvg from '../assets/accessories/eyepatch 1.svg?raw'
+import eyepatchPreview from '../assets/accessories/eyepatch preview.svg?raw'
 
-const PREVIEW_VIEWBOX = {
-  round: '50 62 225 48',
-  square: '50 62 225 48',
-  sunglasses: '50 62 225 48',
-  moustache: '118 112 88 32',
-  beard: '112 128 98 58',
-  eyepatch: '168 58 108 52',
+const ACCESSORY_PICKER_VIEWBOX = '0 0 325 331'
+
+const PREVIEW_CLEAR_LENS_FILL = '#FDF8EF'
+const PREVIEW_SHADE_LENS_FILL = '#141A2E'
+const PREVIEW_FRAME_COLOR = '#3A3A52'
+
+const ACCESSORY_SPECS = {
+  round:            { raw: roundGlassesSvg,    preview: roundGlassesPreview, clearGlasses: true },
+  square:           { raw: squareGlassesSvg,   preview: squareGlassesPreview, clearGlasses: true },
+  rectangle:        { raw: rectangleGlassesSvg, preview: rectangleGlassesPreview, clearGlasses: true },
+  'rectangle-shades': { raw: rectangleShadesSvg, preview: rectangleShadesPreview, shades: true },
+  sunglasses:       { raw: sunglassesSvg,      preview: sunglassesPreview, shades: true },
+  'reading-big':    { raw: readingBigSvg,    preview: readingBigPreview, clearGlasses: true },
+  monacle:          { raw: monacleSvg,         preview: monaclePreview, clearGlasses: true },
+  eyepatch:         { raw: eyepatchSvg,        preview: eyepatchPreview, rawPatchScale: 1.34, patchOriginX: 231.5, patchOriginY: 81.6 },
+  moustache:        { raw: moustacheSvg,       preview: moustachePreview, scale: 1.38, originX: 162.5, originY: 95, offsetY: 8 },
+  beard:            { raw: beardSvg,           preview: beardSvg, offsetY: 24, originX: 162, originY: 160 },
+  goatee:           {
+    raw: goateeSvg,
+    preview: goateePreview,
+    moustacheScale: 1.38,
+    moustacheOriginX: 162.5,
+    moustacheOriginY: 95,
+    chinScale: 1.42,
+    chinOriginX: 163.5,
+    chinOriginY: 164,
+    offsetY: 8,
+  },
 }
 
-function roundGlasses({ compact = false, frame = '#2A2A3E' }) {
-  const r = compact ? 14 : 19
-  const sw = compact ? 2.8 : 3.5
+function accessoryTransform(spec, preview = false) {
+  const scale = preview ? (spec.previewScale ?? spec.scale ?? 1) : (spec.rawScale ?? spec.scale ?? 1)
+  const offsetX = spec.offsetX ?? 0
+  const offsetY = spec.offsetY ?? 0
+  if (scale === 1 && offsetX === 0 && offsetY === 0) return null
+  const cx = spec.originX ?? 162.5
+  const cy = spec.originY ?? 165
+  return `translate(${offsetX} ${offsetY}) translate(${cx} ${cy}) scale(${scale}) translate(${-cx} ${-cy})`
+}
+
+function accessoryColorMap(primary, accent) {
+  return {
+    black: accent,
+    '#000000': accent,
+    '#E69A52': accent,
+  }
+}
+
+function replaceColors(svg, colorMap) {
+  let out = svg
+  for (const [from, to] of Object.entries(colorMap)) {
+    if (!to) continue
+    out = out.replaceAll(from, to)
+    out = out.replaceAll(from.toLowerCase(), to)
+    out = out.replaceAll(from.toUpperCase(), to)
+  }
+  return out
+}
+
+function addClearLensFills(svg) {
+  return svg
+    .replace(/<circle\b([^>]*?)\/>/g, (match, attrs) => {
+      if (/fill=/.test(attrs) || !/stroke=/.test(attrs)) return match
+      return `<circle${attrs} fill="${PREVIEW_CLEAR_LENS_FILL}"/>`
+    })
+    .replace(/<rect\b([^>]*?)\/>/g, (match, attrs) => {
+      if (/fill=/.test(attrs) || !/stroke=/.test(attrs)) return match
+      return `<rect${attrs} fill="${PREVIEW_CLEAR_LENS_FILL}"/>`
+    })
+    .replace(/<path\b([^>]*?)\/>/g, (match, attrs) => {
+      if (/fill=/.test(attrs) || !/stroke=/.test(attrs)) return match
+      if (!/\bd="[^"]*[Zz]/.test(attrs)) return match
+      return `<path${attrs} fill="${PREVIEW_CLEAR_LENS_FILL}"/>`
+    })
+}
+
+function prepareAccessorySvg(source, colorMap, { preview = false, shades = false, clearGlasses = false } = {}) {
+  let out = source
+  if (preview && (clearGlasses || shades)) {
+    out = replaceColors(out, {
+      black: PREVIEW_FRAME_COLOR,
+      '#000000': PREVIEW_FRAME_COLOR,
+      '#E69A52': PREVIEW_FRAME_COLOR,
+    })
+  } else {
+    out = replaceColors(out, colorMap)
+  }
+
+  if (preview && clearGlasses) {
+    out = addClearLensFills(out)
+  }
+
+  if (preview && shades) {
+    out = out
+      .replace(/fill="#1E1E32"\s+fill-opacity="0.55"/g, `fill="${PREVIEW_SHADE_LENS_FILL}"`)
+      .replace(/fill="#1E1E32"/g, `fill="${PREVIEW_SHADE_LENS_FILL}"`)
+      .replace(/\sfill-opacity="0.55"/g, '')
+  }
+
+  return out
+}
+
+function scopeSvgIds(svg, uid) {
+  return svg
+    .replace(/\bid="([^"]+)"/g, (_, id) => `id="${uid}-${id}"`)
+    .replace(/url\(#([^)]+)\)/g, (_, id) => `url(#${uid}-${id})`)
+    .replace(/xlink:href="#([^"]+)"/g, (_, id) => `xlink:href="#${uid}-${id}"`)
+    .replace(/href="#([^"]+)"/g, (_, id) => `href="#${uid}-${id}"`)
+}
+
+function extractSvgInner(raw) {
+  return raw
+    .replace(/<\?xml[^?]*\?>/i, '')
+    .replace(/<svg[^>]*>/i, '')
+    .replace(/<\/svg>\s*$/i, '')
+    .trim()
+}
+
+function splitEyepatchLayers(inner) {
+  const paths = inner.match(/<path[^>]*\/?>/g) ?? []
+  if (paths.length < 3) return { strings: inner, patch: '' }
+  return {
+    strings: paths.slice(0, 2).join(''),
+    patch: paths[2],
+  }
+}
+
+function splitGoateeLayers(inner) {
+  const paths = inner.match(/<path[^>]*\/?>/g) ?? []
+  if (paths.length < 2) return { moustache: inner, chin: '' }
+  return {
+    moustache: paths[0],
+    chin: paths[1],
+  }
+}
+
+function layerTransform({ scale = 1, originX = 162.5, originY = 165, offsetX = 0, offsetY = 0 }) {
+  if (scale === 1 && offsetX === 0 && offsetY === 0) return null
+  return `translate(${offsetX} ${offsetY}) translate(${originX} ${originY}) scale(${scale}) translate(${-originX} ${-originY})`
+}
+
+function patchScaleTransform(scale, cx, cy) {
+  return `translate(${cx} ${cy}) scale(${scale}) translate(${-cx} ${-cy})`
+}
+
+function AccessoryGraphic({ accessory, primary, accent, preview = false }) {
+  const uid = useId().replace(/:/g, '')
+  const spec = ACCESSORY_SPECS[accessory]
+  const inner = useMemo(() => {
+    const source = preview ? spec.preview : spec.raw
+    const colored = prepareAccessorySvg(source, accessoryColorMap(primary, accent), {
+      preview,
+      shades: spec.shades,
+      clearGlasses: spec.clearGlasses,
+    })
+    const scoped = scopeSvgIds(colored, uid)
+    return extractSvgInner(scoped)
+  }, [accessory, primary, accent, preview, spec.preview, spec.raw, spec.shades, spec.clearGlasses, uid])
+
+  if (accessory === 'eyepatch' && !preview && spec.rawPatchScale) {
+    const { strings, patch } = splitEyepatchLayers(inner)
+    return (
+      <g>
+        <g dangerouslySetInnerHTML={{ __html: strings }} />
+        <g
+          transform={patchScaleTransform(spec.rawPatchScale, spec.patchOriginX, spec.patchOriginY)}
+          dangerouslySetInnerHTML={{ __html: patch }}
+        />
+      </g>
+    )
+  }
+
+  if (accessory === 'goatee' && spec.moustacheScale != null) {
+    const { moustache, chin } = splitGoateeLayers(inner)
+    const baseOffsetY = spec.offsetY ?? 0
+    return (
+      <g>
+        <g
+          transform={layerTransform({
+            scale: spec.moustacheScale,
+            originX: spec.moustacheOriginX,
+            originY: spec.moustacheOriginY,
+            offsetY: baseOffsetY,
+          }) ?? undefined}
+          dangerouslySetInnerHTML={{ __html: moustache }}
+        />
+        <g
+          transform={layerTransform({
+            scale: spec.chinScale,
+            originX: spec.chinOriginX,
+            originY: spec.chinOriginY,
+            offsetY: baseOffsetY,
+          }) ?? undefined}
+          dangerouslySetInnerHTML={{ __html: chin }}
+        />
+      </g>
+    )
+  }
+
   return (
-    <g>
-      <circle cx="94.5" cy="85.3" r={r} fill="none" stroke={frame} strokeWidth={sw} />
-      <circle cx="230" cy="85.3" r={r} fill="none" stroke={frame} strokeWidth={sw} />
-      <path d="M113.5 85.3 H211" stroke={frame} strokeWidth={sw - 0.5} strokeLinecap="round" />
-      <line x1="74" y1="85.3" x2="63" y2="82" stroke={frame} strokeWidth={sw - 0.5} strokeLinecap="round" />
-      <line x1="251" y1="85.3" x2="262" y2="82" stroke={frame} strokeWidth={sw - 0.5} strokeLinecap="round" />
-    </g>
+    <g transform={accessoryTransform(spec, preview) ?? undefined} dangerouslySetInnerHTML={{ __html: inner }} />
   )
 }
 
-function squareGlasses({ compact = false, frame = '#2A2A3E' }) {
-  const w = compact ? 30 : 40
-  const h = compact ? 22 : 28
-  const sw = compact ? 2.8 : 3.5
-  const lx = 94.5 - w / 2
-  const rx = 230 - w / 2
-  const y = 85.3 - h / 2
-  return (
-    <g>
-      <rect x={lx} y={y} width={w} height={h} rx="5" fill="none" stroke={frame} strokeWidth={sw} />
-      <rect x={rx} y={y} width={w} height={h} rx="5" fill="none" stroke={frame} strokeWidth={sw} />
-      <path d={`M${lx + w} ${85.3} H${rx}`} stroke={frame} strokeWidth={sw - 0.5} strokeLinecap="round" />
-      <line x1={lx - 11} y1="85.3" x2={lx - 2} y2="85.3" stroke={frame} strokeWidth={sw - 0.5} strokeLinecap="round" />
-      <line x1={rx + w + 2} y1="85.3" x2={rx + w + 11} y2="85.3" stroke={frame} strokeWidth={sw - 0.5} strokeLinecap="round" />
-    </g>
-  )
-}
-
-function sunglasses({ compact = false, frame = '#2A2A3E' }) {
-  const w = compact ? 34 : 44
-  const h = compact ? 20 : 26
-  const sw = compact ? 2.8 : 3.5
-  const lx = 94.5 - w / 2
-  const rx = 230 - w / 2
-  const y = 85.3 - h / 2
-  return (
-    <g>
-      <rect x={lx} y={y} width={w} height={h} rx="6" fill={LENS} stroke={frame} strokeWidth={sw} />
-      <rect x={rx} y={y} width={w} height={h} rx="6" fill={LENS} stroke={frame} strokeWidth={sw} />
-      <path d={`M${lx + w} ${85.3} H${rx}`} stroke={frame} strokeWidth={sw - 0.5} strokeLinecap="round" />
-      <line x1={lx - 11} y1="85.3" x2={lx - 2} y2="85.3" stroke={frame} strokeWidth={sw - 0.5} strokeLinecap="round" />
-      <line x1={rx + w + 2} y1="85.3" x2={rx + w + 11} y2="85.3" stroke={frame} strokeWidth={sw - 0.5} strokeLinecap="round" />
-    </g>
-  )
-}
-
-function moustache({ compact = false, primary = '#2A2A3E', accent = '#1A1A2A' }) {
-  const sw = compact ? 5 : 7
-  return (
-    <g>
-      <path
-        d="M 138 128 C 148 118 154 116 161 118 C 168 116 174 118 184 128 C 178 134 170 136 161 134 C 152 136 144 134 138 128 Z"
-        fill={primary}
-      />
-      <path
-        d="M 142 126 C 150 122 155 121 161 122 C 167 121 172 122 180 126"
-        fill="none"
-        stroke={accent}
-        strokeWidth={sw * 0.35}
-        strokeLinecap="round"
-        opacity="0.55"
-      />
-    </g>
-  )
-}
-
-function beard({ compact = false, primary = '#2A2A3E', accent = '#1A1A2A' }) {
-  const w = compact ? 52 : 68
-  const h = compact ? 38 : 48
-  const x = 161.5 - w / 2
-  const y = compact ? 148 : 142
-  return (
-    <g>
-      <ellipse cx="161.5" cy={y + h * 0.42} rx={w * 0.48} ry={h * 0.52} fill={primary} />
-      <path
-        d={`M ${x + w * 0.18} ${y + h * 0.2} Q 161.5 ${y + h * 0.08} ${x + w * 0.82} ${y + h * 0.2}`}
-        fill="none"
-        stroke={accent}
-        strokeWidth={compact ? 3 : 4}
-        strokeLinecap="round"
-        opacity="0.45"
-      />
-      <ellipse cx="148" cy={y + h * 0.55} rx={compact ? 5 : 7} ry={compact ? 7 : 9} fill={accent} opacity="0.35" />
-      <ellipse cx="175" cy={y + h * 0.55} rx={compact ? 5 : 7} ry={compact ? 7 : 9} fill={accent} opacity="0.35" />
-    </g>
-  )
-}
-
-function eyepatch({ compact = false, primary = '#2A2A3E', accent = '#1A1A2A' }) {
-  const rx = compact ? 20 : 26
-  const ry = compact ? 14 : 18
-  const sw = compact ? 2.4 : 3
-  return (
-    <g>
-      <path
-        d={`M 72 ${compact ? 72 : 68} Q 145 ${compact ? 58 : 52} 222 ${compact ? 72 : 68}`}
-        fill="none"
-        stroke={accent}
-        strokeWidth={sw}
-        strokeLinecap="round"
-      />
-      <ellipse cx="230" cy="85.3" rx={rx} ry={ry} fill={primary} stroke={accent} strokeWidth={sw - 0.5} />
-      <circle cx={230 - rx * 0.35} cy={85.3 - ry * 0.2} r={compact ? 2.5 : 3.5} fill="rgba(255,255,255,0.22)" />
-    </g>
-  )
-}
-
-function MonsterAccessoryGraphic({ accessory = 'none', accessoryColorKey = 'red', compact = false }) {
-  if (accessory === 'none') return null
+function MonsterAccessoryGraphic({ accessory = 'none', accessoryColorKey = 'red' }) {
+  if (accessory === 'none' || !ACCESSORY_SPECS[accessory]) return null
   const { primary, accent } = getAccessoryColors(accessory, accessoryColorKey)
-  if (accessory === 'round') return roundGlasses({ compact, frame: accent })
-  if (accessory === 'square') return squareGlasses({ compact, frame: accent })
-  if (accessory === 'sunglasses') return sunglasses({ compact, frame: accent })
-  if (accessory === 'moustache') return moustache({ compact, primary, accent })
-  if (accessory === 'beard') return beard({ compact, primary, accent })
-  if (accessory === 'eyepatch') return eyepatch({ compact, primary, accent })
-  return null
+  return <AccessoryGraphic accessory={accessory} primary={primary} accent={accent} />
 }
 
 function AccessoryOnlyPreview({ accessory, accessoryColorKey = 'red' }) {
@@ -144,12 +243,20 @@ function AccessoryOnlyPreview({ accessory, accessoryColorKey = 'red' }) {
       </svg>
     )
   }
-  const viewBox = PREVIEW_VIEWBOX[accessory] ?? '50 62 225 48'
+  if (!ACCESSORY_SPECS[accessory]) return null
+  const { primary, accent } = getAccessoryColors(accessory, accessoryColorKey)
   return (
-    <svg width="100%" height="100%" viewBox={viewBox} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-      <MonsterAccessoryGraphic accessory={accessory} accessoryColorKey={accessoryColorKey} compact />
+    <svg
+      width="100%"
+      height="100%"
+      viewBox={ACCESSORY_PICKER_VIEWBOX}
+      preserveAspectRatio="xMidYMid meet"
+      aria-hidden="true"
+      style={{ display: 'block', overflow: 'hidden' }}
+    >
+      <AccessoryGraphic accessory={accessory} primary={primary} accent={accent} preview />
     </svg>
   )
 }
 
-export { MonsterAccessoryGraphic, AccessoryOnlyPreview }
+export { MonsterAccessoryGraphic, AccessoryOnlyPreview, ACCESSORY_SPECS }
