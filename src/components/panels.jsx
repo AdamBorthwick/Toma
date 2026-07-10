@@ -72,11 +72,6 @@ function SidePanelButtons({ editDragging, onBook, onDecor, onShelves, onMonster,
   const invDecorWrap = {
     width: isMobile ? 24 : 28,
     height: isMobile ? 28 : 32,
-    display: 'flex',
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-    overflow: 'hidden',
-    flexShrink: 0,
   }
   const invSpine = {
     width: isMobile ? 14 : 16,
@@ -172,7 +167,9 @@ function SidePanelButtons({ editDragging, onBook, onDecor, onShelves, onMonster,
           {topItem.type === 'decor' && (() => {
             const dt = topItem.decorType
             const decorW = isMobile ? 22 : 26
-            const wrap = child => <div style={invDecorWrap}>{child}</div>
+            const wrap = child => (
+              <div className="inv-decor-preview-wrap picker-preview-shadow" style={invDecorWrap}>{child}</div>
+            )
             if (dt === 'flower')  return wrap(<PlacedFlower    w={decorW} />)
             if (dt === 'flower2') return wrap(<PlacedFlower2   w={decorW} />)
             if (dt === 'coffee')  return wrap(<PlacedCoffeeCup w={decorW} />)
@@ -598,22 +595,13 @@ function BookAddPanel({ isOpen, selectedBooks, onToggleBook, onConfirm, onClose,
 function DecorAddPanel({ isOpen, onSelect, onClose, isMobile = false }) {
   const [picked, setPicked] = useState(null)
   if (!isOpen) return null
-  const decorPreviewStyle = {
-    height: 72,
-    width: '100%',
-    maxWidth: 52,
-    margin: '0 auto',
-    overflow: 'hidden',
-    display: 'flex',
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-  }
+  const decorPreviewSize = isMobile ? 26 : 28
   const items = [
-    { type: 'flower',  label: 'Plant',   preview: <div style={decorPreviewStyle}><PlacedFlower    w={44} /></div> },
-    { type: 'flower2', label: 'Plant 2', preview: <div style={decorPreviewStyle}><PlacedFlower2   w={44} /></div> },
-    { type: 'coffee',  label: 'Coffee',  preview: <div style={decorPreviewStyle}><PlacedCoffeeCup w={44} /></div> },
-    { type: 'light',   label: 'Candle',  preview: <div style={decorPreviewStyle}><PlacedLight     w={44} /></div> },
-    { type: 'clock',   label: 'Clock',   preview: <div style={decorPreviewStyle}><PlacedClock     w={44} /></div> },
+    { type: 'flower',  label: 'Plant',   preview: <div className="decor-preview-wrap picker-preview-shadow"><PlacedFlower    w={decorPreviewSize} /></div> },
+    { type: 'flower2', label: 'Plant 2', preview: <div className="decor-preview-wrap picker-preview-shadow"><PlacedFlower2   w={decorPreviewSize} /></div> },
+    { type: 'coffee',  label: 'Coffee',  preview: <div className="decor-preview-wrap picker-preview-shadow"><PlacedCoffeeCup w={decorPreviewSize} /></div> },
+    { type: 'light',   label: 'Candle',  preview: <div className="decor-preview-wrap picker-preview-shadow"><PlacedLight     w={decorPreviewSize} /></div> },
+    { type: 'clock',   label: 'Clock',   preview: <div className="decor-preview-wrap picker-preview-shadow"><PlacedClock     w={decorPreviewSize - 2} /></div> },
   ]
   return (
     <BottomSheet
@@ -1012,7 +1000,7 @@ function HatOnlyPreview({ hat, hatColorKey = 'red' }) {
       viewBox={getHatPickerViewBox(hat)}
       preserveAspectRatio="xMidYMid meet"
       aria-hidden="true"
-      style={{ display: 'block', overflow: 'hidden' }}
+      className="picker-preview-svg picker-preview-shadow"
     >
       <MonsterHatGraphic hat={hat} hatColorKey={hatColorKey} />
     </svg>
@@ -1460,7 +1448,7 @@ function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, eyeColor
                     onClick={() => setDraftEyeShape(s.key)}
                     title={s.label}
                   >
-                    <div style={{ width: '100%', height: 56, pointerEvents: 'none', overflow: 'hidden' }}>
+                    <div className="picker-preview-wrap">
                       <EyeShapeOnlyPreview eyeShape={s.key} eyeColorKey={sel ? draftEyeColor : 'dark'} />
                     </div>
                   </PickerSquare>
@@ -1492,7 +1480,7 @@ function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, eyeColor
                     onClick={() => setDraftHat(h.key)}
                     title={h.label}
                   >
-                    <div style={{ width: '100%', height: 56, pointerEvents: 'none', overflow: 'hidden' }}>
+                    <div className="picker-preview-wrap">
                       <HatOnlyPreview hat={h.key} hatColorKey={sel ? draftHatColor : 'red'} />
                     </div>
                   </PickerSquare>
@@ -1525,7 +1513,7 @@ function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, eyeColor
                     onClick={() => setDraftAccessory(a.key)}
                     title={a.label}
                   >
-                    <div style={{ width: '100%', height: 56, pointerEvents: 'none', overflow: 'hidden' }}>
+                    <div className="picker-preview-wrap">
                       <AccessoryOnlyPreview accessory={a.key} accessoryColorKey={sel ? draftAccessoryColor : 'red'} />
                     </div>
                   </PickerSquare>

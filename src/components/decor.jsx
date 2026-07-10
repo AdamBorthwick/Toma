@@ -170,6 +170,7 @@ function PlacedClock({ w }) {
 // ─── Edit-mode item previews ──────────────────────────────────────────────────
 
 function InventoryPreview({ type }) {
+  const decorSize = 30
   if (type === 'vertical-book') return (
     <div style={{ width: 18, height: 52, background: '#5a3a8a', borderRadius: '3px 3px 1px 1px', boxShadow: 'inset -2px 0 4px rgba(0,0,0,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <span style={{ writingMode: 'vertical-rl', fontSize: 8, color: '#d4c8f0', fontFamily: "'Manrope',sans-serif", fontWeight: 600 }}>BOOK</span>
@@ -182,11 +183,11 @@ function InventoryPreview({ type }) {
       ))}
     </div>
   )
-  if (type === 'flower')  return <div style={{ width: 38, height: 52, position: 'relative', overflow: 'visible' }}><PlacedFlower w={38} /></div>
-  if (type === 'flower2') return <div style={{ width: 38, height: 52, position: 'relative', overflow: 'visible' }}><PlacedFlower2 w={38} /></div>
-  if (type === 'coffee')  return <div style={{ width: 38, height: 52, position: 'relative', overflow: 'visible' }}><PlacedCoffeeCup w={38} /></div>
-  if (type === 'light')   return <div style={{ width: 38, height: 52, position: 'relative', overflow: 'visible' }}><PlacedLight w={38} /></div>
-  if (type === 'clock')   return <div style={{ width: 38, height: 52, position: 'relative', overflow: 'visible' }}><PlacedClock w={38} /></div>
+  if (type === 'flower')  return <div className="decor-preview-wrap picker-preview-shadow" style={{ maxWidth: 34, height: 46 }}><PlacedFlower w={decorSize} /></div>
+  if (type === 'flower2') return <div className="decor-preview-wrap picker-preview-shadow" style={{ maxWidth: 34, height: 46 }}><PlacedFlower2 w={decorSize} /></div>
+  if (type === 'coffee')  return <div className="decor-preview-wrap picker-preview-shadow" style={{ maxWidth: 34, height: 46 }}><PlacedCoffeeCup w={decorSize} /></div>
+  if (type === 'light')   return <div className="decor-preview-wrap picker-preview-shadow" style={{ maxWidth: 34, height: 46 }}><PlacedLight w={decorSize} /></div>
+  if (type === 'clock')   return <div className="decor-preview-wrap picker-preview-shadow" style={{ maxWidth: 32, height: 46 }}><PlacedClock w={decorSize - 2} /></div>
   return null
 }
 

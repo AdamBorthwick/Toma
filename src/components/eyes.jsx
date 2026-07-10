@@ -137,12 +137,14 @@ function MonsterEyes({
 function EyeShapeOnlyPreview({ eyeShape = 'round', eyeColorKey = 'dark' }) {
   const spec = getEyeShapeSpec(eyeShape)
   const irisColor = getEyeColor(eyeColorKey).iris
+  const { x, y, w, h } = spec.leftMask
+  const pad = 6
+  const viewBox = `${x - pad} ${y - pad} ${w + pad * 2} ${h + pad * 2}`
+
   return (
-    <svg width="100%" height="100%" viewBox={spec.preview} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+    <svg width="100%" height="100%" viewBox={viewBox} preserveAspectRatio="xMidYMid meet" aria-hidden="true" className="picker-preview-svg picker-preview-shadow">
       {renderEyeWhite(spec, 'left')}
       <circle cx={spec.leftIris.cx} cy={spec.leftIris.cy} r={spec.leftIris.r} fill={irisColor} />
-      {renderEyeWhite(spec, 'right')}
-      <circle cx={spec.rightIris.cx} cy={spec.rightIris.cy} r={spec.rightIris.r} fill={irisColor} />
     </svg>
   )
 }

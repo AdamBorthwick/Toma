@@ -11,6 +11,7 @@
   --radius-lg: 12px;
   --radius-sheet: 18px;
   --radius-dialog: 20px;
+  --shadow-picker-preview: drop-shadow(0 2px 3px rgba(25, 36, 61, 0.22));
 }
 
 html, body {
@@ -364,6 +365,38 @@ input:-webkit-autofill:focus { -webkit-box-shadow: 0 0 0 30px white inset !impor
 .style-hat-bleed .scroll-fade-scroll--x {
   padding-top: 0;
   padding-bottom: 0;
+}
+
+/* Picker tile previews — hats, eyes, accessories, decor */
+.picker-preview-shadow {
+  filter: var(--shadow-picker-preview);
+}
+.picker-preview-svg {
+  display: block;
+  overflow: visible;
+}
+.picker-preview-wrap {
+  width: 100%;
+  height: 56px;
+  pointer-events: none;
+  overflow: visible;
+}
+.decor-preview-wrap {
+  width: 100%;
+  max-width: 40px;
+  height: 58px;
+  margin: 0 auto;
+  overflow: visible;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.inv-decor-preview-wrap {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  overflow: visible;
+  flex-shrink: 0;
 }
 @keyframes titlePulse {
   0%, 100% { opacity: 0.3; }

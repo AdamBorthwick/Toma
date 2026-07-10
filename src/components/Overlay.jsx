@@ -137,8 +137,8 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
 
   if (!selected) return null
   const { shelf: sh, idx: shIdx } = findShelf(selected.id, shelfConfigs)
-  const colors = shIdx >= 0 ? getShelfColors(sh?.colorKey) : null
-  const accent = colors?.accent ?? sh?.accent ?? '#888'
+  const shelfColors = shIdx >= 0 ? getShelfColors(sh?.colorKey) : null
+  const accent = shelfColors?.accent ?? sh?.accent ?? '#888'
   const shelfLabel = sh?.label ?? ''
   // genre: prefer book's own category tag, fall back to shelf label
   const genre = selected.category || shelfLabel

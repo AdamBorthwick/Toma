@@ -252,7 +252,7 @@ function AccessoryOnlyPreview({ accessory, accessoryColorKey = 'red' }) {
       viewBox={ACCESSORY_PICKER_VIEWBOX}
       preserveAspectRatio="xMidYMid meet"
       aria-hidden="true"
-      style={{ display: 'block', overflow: 'hidden' }}
+      className="picker-preview-svg picker-preview-shadow"
     >
       <AccessoryGraphic accessory={accessory} primary={primary} accent={accent} preview />
     </svg>
