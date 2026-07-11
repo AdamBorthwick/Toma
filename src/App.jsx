@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react'
 import { flushSync } from 'react-dom'
 import { resolveUserId, loadShelfByUserId, loadShelfByShareId, loadReviews, persistShelf, getShareId, setUsername as saveUsername, getUsername, getMonsterLook, setMonsterLook, loadInventory, addInventoryBook, addInventoryStack, addInventoryDecor, removeInventoryItem, DbError } from './db.js'
 import { DialogBackdrop, DialogCard, DialogTitle, DialogDescription, DialogActions, FieldLabel, TextInput, Button } from './components/ui/index.js'
@@ -12,7 +12,7 @@ import { SHELVES, getShelfColors, reconstructShelf } from './data/shelves.jsx'
 import { getMonsterColors } from './data/monster.jsx'
 import { IconTrash, IconRotate } from './components/icons.jsx'
 import { CaveBackground, PoofSmoke, TomaHead } from './components/scene.jsx'
-import { getHeadIntroDuration, getHeadIntroViewportStartTop, getHeadIntroStartBelow, getHatOverhangAboveHeadPx } from './components/hats.jsx'
+import { getHeadIntroDuration, getHatOverhangAboveHeadPx } from './components/hats.jsx'
 import { EditableShelfRow, SavedShelfRow, DragGhost, ShelfPlate, ShelfRow } from './components/shelfRows.jsx'
 import { SpineLabel } from './components/SpineLabel.jsx'
 import { getSpineDims } from './lib/spineTypography.js'
@@ -21,6 +21,7 @@ import { Overlay } from './components/Overlay.jsx'
 import { TitleScreen } from './components/TitleScreen.jsx'
 import { StageScaleProvider } from './context/StageScale.jsx'
 import { OnboardingOverlay } from './components/OnboardingOverlay.jsx'
+import { TourOverlay } from './components/TourOverlay.jsx'
 
 // Head emergence after title — rises from viewport center to the top-of-shelf pose.
 const HEAD_INTRO_END_TOP = 108
@@ -119,6 +120,9 @@ export default function App() {
   const [isViewOnly, setIsViewOnly]         = useState(false)
   const [isDbLoaded, setIsDbLoaded]         = useState(false)
   const [showOnboarding, setShowOnboarding] = useState(false)
+  // Onboarding tour — null while inactive, 1-indexed step id while active. Only ever
+  // set for genuine first-time users, gated by localStorage['toma_tour_v1'].
+  const [tourStep, setTourStep] = useState(null)
   const [bookcaseRevealed, setBookcaseRevealed] = useState(false)
   const [poofActive, setPoofActive]             = useState(false)
   const [headIntroTop, setHeadIntroTop]         = useState(null)
@@ -137,6 +141,11 @@ export default function App() {
   const [saveStatus, setSaveStatus]         = useState('')  // 'saving' | 'saved' | 'error' | ''
   const [dbError, setDbError]               = useState(null)
   const [irisOff, setIrisOff]               = useState({ x: 0, y: 0 })
+  const [lookAwayOff, setLookAwayOff]       = useState({ x: 0, y: 0 })
+  const lookTargetRef = useRef({ x: 0, y: 0 })
+  const lookSmoothRef = useRef({ x: 0, y: 0 })
+  const lookAwayTimersRef = useRef([])
+  const headDuckingRef = useRef(false)
   const headRef = useRef(null)
   const headEmergeRafRef = useRef(null)
   const titleHeadPendingRef = useRef(false)
@@ -223,6 +232,14 @@ export default function App() {
     return 196 + n * (SHELF_H + 20)
   }
 
+  // Bookcase-layer `top` for intro — head vertically centered within the shelves,
+  // so on 3 shelves it starts behind shelf 2, then rises into place.
+  function shelfIntroCenterTop(headH = HEAD_RENDER_H) {
+    const bookcaseTop = 196
+    const bookcaseBot = shelfBookcaseBottom()
+    return Math.round((bookcaseTop + bookcaseBot) / 2 - headH / 2)
+  }
+
   // Measured stage geometry normalized to viewport (visual) space. Engines disagree on
   // getBoundingClientRect for a CSS-zoomed element: some return the visual box
   // (zoom-multiplied), others return the element's own coordinate space (unzoomed, with
@@ -251,28 +268,6 @@ export default function App() {
   function stageRectZoom() {
     const m = stageMetrics()
     return m ? m.rectZoom : 1
-  }
-
-  // Bookcase-layer `top` for intro — viewport-centered, with tall hats kept off-screen above.
-  function headIntroViewportCenterTop(hatKey = monsterHatKey, headH = HEAD_RENDER_H) {
-    const scrollEl = scrollRef.current
-    const scrollRect = scrollEl ? scrollEl.getBoundingClientRect() : null
-    const viewportCenterY = scrollRect
-      ? scrollRect.top + scrollEl.clientHeight / 2
-      : window.innerHeight / 2
-    const viewportTop = scrollRect ? scrollRect.top : 0
-    const m = stageMetrics()
-    const z = scaleRef.current > 0 ? scaleRef.current : 1
-    const stageTop = m ? m.top : viewportTop
-    const stageSy = m ? m.sy : z
-    return getHeadIntroViewportStartTop(hatKey, {
-      viewportCenterY,
-      viewportTop,
-      stageTop,
-      stageSy,
-      bookcaseShift: bookcaseShiftRef.current,
-      headH,
-    })
   }
 
   const runHeadEmergence = useCallback((startTop, { unlockScroll = false } = {}) => {
@@ -1205,6 +1200,11 @@ export default function App() {
       const sid = await getShareId(userId)
       if (sid) setShareId(sid)
       setShowOnboarding(false)
+      // Kick off the guided tour once for genuinely new users. localStorage flag so
+      // it never re-appears across tabs/sessions on this browser.
+      try {
+        if (!localStorage.getItem('toma_tour_v1')) setTourStep(1)
+      } catch { /* localStorage disabled — just skip the tour */ }
     } catch (err) {
       setSaveStatus('error')
       throw err
@@ -1216,6 +1216,62 @@ export default function App() {
     setUsername(newUsername)
     if (userId) await saveUsername(userId, newUsername)
     setShowPlateEdit(false)
+  }
+
+  // ── Onboarding tour ────────────────────────────────────────────────────────
+  // Step definitions live here (not in TourOverlay) because two of them need to
+  // reach into App state — step 1's onAdvance may need to enter edit mode, and
+  // the mobile-only step 4 depends on isMobile.
+  const tourSteps = useMemo(() => {
+    const steps = [
+      {
+        target: 'edit-mode-toggle',
+        title: 'Browse or Build',
+        body: 'This toggle switches between Browse (view your books) and Build (arrange, add, or remove). Tap the toggle now, or hit Next to continue.',
+        onAdvance: () => { if (!isEditModeRef.current) enterEditMode() },
+      },
+      {
+        target: null,
+        kind: 'demo',
+        title: 'Move books around',
+        body: 'In Build mode you can drag any book to a new slot or a different shelf.',
+      },
+      {
+        target: 'customization',
+        title: 'Add & customize',
+        body: 'Use these buttons to add books, decor, style your monster, and organize your shelves.',
+      },
+    ]
+    if (isMobile) {
+      steps.push({
+        target: 'zoom-btn',
+        title: 'Zoom in & out',
+        body: 'Tap the magnifier to focus on one shelf and pan through it, or zoom back out to see the whole bookcase.',
+      })
+    }
+    return steps
+  }, [isMobile]) // eslint-disable-line
+
+  // Step 1 → 2 also advances automatically when the real toggle is pressed. We
+  // detect this by watching `isEditMode`: if the user tapped the highlighted
+  // button, isEditMode flips to true and we move forward.
+  useEffect(() => {
+    if (tourStep === 1 && isEditMode) setTourStep(2)
+  }, [tourStep, isEditMode])
+
+  function advanceTour() {
+    const cur = tourStep
+    if (cur == null) return
+    const def = tourSteps[cur - 1]
+    def?.onAdvance?.()
+    if (cur + 1 <= tourSteps.length) setTourStep(cur + 1)
+    else finishTour()
+  }
+
+  function finishTour() {
+    try { localStorage.setItem('toma_tour_v1', '1') } catch { /* ignore */ }
+    if (isEditModeRef.current) exitEditMode()
+    setTourStep(null)
   }
 
   function clearShareCopyNotice() {
@@ -1312,17 +1368,17 @@ export default function App() {
       return () => { clearTimeout(tReveal); clearTimeout(tClear) }
     }
 
-    // Mode 1 (from title intro): no poof — reveal immediately, head rises from the
-    // vertical center of the viewport up to the shelf.
+    // Mode 1 (from title intro): no poof — reveal immediately, head rises from behind
+    // the vertical center of the bookshelf up to the shelf top.
     setBookcaseRevealed(true)
 
     requestAnimationFrame(() => {
-      setHeadIntroTop(headIntroViewportCenterTop(monsterHatKey))
+      setHeadIntroTop(shelfIntroCenterTop())
       setHeadIntroLeft(580)
     })
 
     const t1 = setTimeout(() => {
-      const startTop = headIntroViewportCenterTop(monsterHatKey)
+      const startTop = shelfIntroCenterTop()
       runHeadEmergence(startTop, { unlockScroll: true })
     }, 200)
 
@@ -1340,7 +1396,7 @@ export default function App() {
   useEffect(() => {
     if (!bookcaseRevealed || showTitle || !titleHeadPendingRef.current) return
     titleHeadPendingRef.current = false
-    const startTop = getHeadIntroStartBelow(monsterHatKey)
+    const startTop = shelfIntroCenterTop()
     setShowStageHead(true)
     requestAnimationFrame(() => runHeadEmergence(startTop))
   }, [showTitle, bookcaseRevealed, monsterHatKey, runHeadEmergence])
@@ -1804,6 +1860,67 @@ export default function App() {
     window.addEventListener('mousemove', onMove)
     return () => window.removeEventListener('mousemove', onMove)
   }, [])
+
+  // Idle look-away — occasional glances at the shelf, smoothed into iris tracking.
+  useEffect(() => {
+    if (!bookcaseRevealed || showTitle || showOnboarding) {
+      lookTargetRef.current = { x: 0, y: 0 }
+      lookSmoothRef.current = { x: 0, y: 0 }
+      setLookAwayOff({ x: 0, y: 0 })
+      return
+    }
+    let raf
+    const tick = () => {
+      const s = lookSmoothRef.current
+      const t = lookTargetRef.current
+      s.x += (t.x - s.x) * 0.14
+      s.y += (t.y - s.y) * 0.14
+      setLookAwayOff({ x: s.x, y: s.y })
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [bookcaseRevealed, showTitle, showOnboarding])
+
+  useEffect(() => {
+    if (!bookcaseRevealed || showTitle || showOnboarding) {
+      lookTargetRef.current = { x: 0, y: 0 }
+      lookAwayTimersRef.current.forEach(clearTimeout)
+      lookAwayTimersRef.current = []
+      return
+    }
+    const timers = lookAwayTimersRef.current
+    const blocked = () =>
+      uiOverlayOpenRef.current
+      || grabPhaseRef.current
+      || introBlockRef.current
+      || editDraggingRef.current
+      || headDuckingRef.current
+
+    const schedule = () => {
+      const delay = 22000 + Math.random() * 18000
+      timers.push(setTimeout(() => {
+        if (blocked()) { schedule(); return }
+        const targets = [
+          { x: -5.5, y: 1.5 },
+          { x: 5.5, y: 1 },
+          { x: -3, y: -2 },
+          { x: 4, y: 2.5 },
+        ]
+        lookTargetRef.current = targets[Math.floor(Math.random() * targets.length)]
+        timers.push(setTimeout(() => {
+          lookTargetRef.current = { x: 0, y: 0 }
+          schedule()
+        }, 1100 + Math.random() * 500))
+      }, delay))
+    }
+    schedule()
+    return () => {
+      timers.forEach(clearTimeout)
+      timers.length = 0
+      lookTargetRef.current = { x: 0, y: 0 }
+    }
+  }, [bookcaseRevealed, showTitle, showOnboarding])
 
   // Cache delete button position when drag starts (for donate bin placement)
   useEffect(() => {
@@ -2406,6 +2523,9 @@ export default function App() {
     || showShareModal || showPlateEdit || showAddShelfModal || editingShelfIdx !== null
     || showOnboarding
   uiOverlayOpenRef.current = uiOverlayOpen
+  headDuckingRef.current = headDucking
+  if (uiOverlayOpen) lookTargetRef.current = { x: 0, y: 0 }
+
   // returnProgress 0→1: during returning, retractMode sweeps 1→0, so 1-retractMode gives progress
   const returnProgress = retreating ? (1 - retractMode) : 0
   const safeShelfH = (Number.isFinite(shelfH) && shelfH > 0) ? shelfH : SHELF_H
@@ -2559,7 +2679,7 @@ export default function App() {
     // The intro effect will skip Mode 1 because bookcaseRevealed is already true.
     if (isDbLoaded && !bookcaseRevealed) {
       setBookcaseRevealed(true)
-      const hiddenTop = getHeadIntroStartBelow(monsterHatKey)
+      const hiddenTop = shelfIntroCenterTop()
       setHeadIntroTop(hiddenTop)
       setHeadIntroLeft(580)
       if (isMobileRef.current) {
@@ -2814,7 +2934,7 @@ export default function App() {
           }}>
             <div style={{ position: 'absolute', inset: 0, animation: headDucking ? 'headDuck 1.8s ease-in-out' : (uiOverlayOpen ? 'none' : 'tomaBob 4.6s ease-in-out infinite') }}>
               <TomaHead
-                irisOff={irisOff}
+                irisOff={{ x: irisOff.x + lookAwayOff.x, y: irisOff.y + lookAwayOff.y }}
                 bodyColor={monsterLook.body}
                 accentColor={monsterLook.accent}
                 hat={monsterHatKey}
@@ -2948,6 +3068,7 @@ export default function App() {
             {!isViewOnly && (
               <button
                 onClick={isEditMode ? exitEditMode : enterEditMode}
+                data-tour-target="edit-mode-toggle"
                 style={{
                   display: 'flex', alignItems: 'center', gap: 8,
                   padding: '6px 14px 6px 8px', cursor: 'pointer',
@@ -3016,6 +3137,7 @@ export default function App() {
       {isMobile && bookcaseRevealed && !selected && !editDragging && (
         <button
           onClick={toggleMobileZoom}
+          data-tour-target="zoom-btn"
           style={{
             position: 'fixed', left: 12, top: 12, zIndex: 40,
             width: 44, height: 44, borderRadius: 12, border: 'none',
@@ -3118,6 +3240,17 @@ export default function App() {
       )}
 
       {showOnboarding && <OnboardingOverlay onSubmit={handleOnboardingSubmit} />}
+
+      {/* Guided tour — first-time users only, gated by localStorage['toma_tour_v1']. */}
+      {tourStep !== null && (
+        <TourOverlay
+          step={tourStep}
+          steps={tourSteps}
+          isMobile={isMobile}
+          onNext={advanceTour}
+          onFinish={finishTour}
+        />
+      )}
 
       {showPlateEdit && (
         <ShelfPlateEditModal

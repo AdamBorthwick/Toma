@@ -183,7 +183,7 @@ function SidePanelButtons({ editDragging, onBook, onDecor, onShelves, onMonster,
   })() : null
 
   const buildBtn = isMobile ? (
-    <div style={slide(true)}>
+    <div style={slide(true)} data-tour-target="edit-mode-toggle">
       <button onClick={onToggleEdit} style={{
         ...btnBase,
         padding: '7px 3px',
@@ -264,7 +264,7 @@ function SidePanelButtons({ editDragging, onBook, onDecor, onShelves, onMonster,
   return (
     <div style={containerStyle}>
       {isMobile ? (
-        <div className="mobile-footer-scroll" style={{
+        <div className="mobile-footer-scroll" data-tour-target="customization" style={{
           display: 'flex', flexDirection: 'row', alignItems: 'flex-end',
           overflowX: 'auto', maxWidth: '100%',
           padding: '2px 4px',
@@ -273,7 +273,7 @@ function SidePanelButtons({ editDragging, onBook, onDecor, onShelves, onMonster,
           {mobileToolbar}
         </div>
       ) : (
-        <>
+        <div data-tour-target="customization" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
             <button onClick={onBook} style={{ ...btnBase, background: '#254CA4', color: '#FDF8EF' }}
               onMouseEnter={onHover} onMouseLeave={offHover}>
@@ -297,7 +297,7 @@ function SidePanelButtons({ editDragging, onBook, onDecor, onShelves, onMonster,
           </div>
           {editShelfBtn}
           {inventoryTile}
-        </>
+        </div>
       )}
     </div>
   )
