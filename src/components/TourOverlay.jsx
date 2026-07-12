@@ -63,7 +63,13 @@ export function TourOverlay({ step, steps, isMobile = false, onNext, onFinish })
       clearTimeout(t)
       window.removeEventListener('resize', schedule)
       window.removeEventListener('scroll', schedule, { capture: true })
-      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current)
+        // Clear the ref too — otherwise StrictMode's second effect setup sees the
+        // stale (cancelled) id, treats a RAF as already scheduled, and never
+        // actually measures the target. The rect stays null → no spotlight.
+        rafRef.current = null
+      }
     }
   }, [stepDef, targetKey, kind])
 

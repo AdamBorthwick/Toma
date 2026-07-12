@@ -112,6 +112,11 @@ export default function App() {
   const _urlParams  = new URLSearchParams(window.location.search)
   const _skipIntro  = _urlParams.get('skipIntro') === '1'
   const _startEdit  = _urlParams.get('edit') === '1'
+  // ?tour=1 forces the guided tour to start after the shelf is revealed, bypassing the
+  // localStorage flag. Captured at mount so it survives the history.replaceState the
+  // skipIntro/edit params trigger below — otherwise re-reading URLSearchParams on the
+  // next render would find an empty query string and skip the tour.
+  const [_forceTour] = useState(() => new URLSearchParams(window.location.search).get('tour') === '1')
   const [flashInventory, setFlashInventory] = useState(_startEdit)
 
   const [userId, setUserId]                 = useState(null)
@@ -1258,6 +1263,19 @@ export default function App() {
   useEffect(() => {
     if (tourStep === 1 && isEditMode) setTourStep(2)
   }, [tourStep, isEditMode])
+
+  // ?tour=1 test hook — force the tour to start after the shelf is revealed even for
+  // returning users. Fires exactly once per page load so a user who Skips can't get
+  // reprompted mid-session. Also exits edit mode first so step 1 (the edit-mode toggle)
+  // has something to demonstrate — otherwise the step-1→2 effect below auto-skips it.
+  const forceTourFiredRef = useRef(false)
+  useEffect(() => {
+    if (forceTourFiredRef.current || !_forceTour) return
+    if (!bookcaseRevealed || showTitle || showOnboarding || isViewOnly) return
+    forceTourFiredRef.current = true
+    if (isEditModeRef.current) exitEditMode()
+    setTourStep(1)
+  }, [_forceTour, bookcaseRevealed, showTitle, showOnboarding, isViewOnly])
 
   function advanceTour() {
     const cur = tourStep
