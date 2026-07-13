@@ -185,13 +185,13 @@ function SidePanelButtons({ editDragging, onBook, onDecor, onShelves, onMonster,
   const buildBtn = isMobile ? (
     <div style={slide(true)} data-tour-target="edit-mode-toggle">
       {/* Edit ⇄ View mode. In edit mode the button shows the *destination* — the
-          view-mode affordance — so tapping it is a clear "go back to viewing". */}
+          view-mode affordance — so tapping it is a clear "go back to viewing".
+          Yellow caution-stripe stays the same in both states so the button reads as
+          the mode switcher regardless of which side of the toggle you're on. */}
       <button onClick={onToggleEdit} style={{
         ...btnBase,
         padding: '7px 3px',
-        background: isEditMode
-          ? '#254CA4'  // plain blue when in edit mode → "return to view" is a calm action
-          : 'linear-gradient(#2A2A2A, #2A2A2A) padding-box, repeating-linear-gradient(-45deg, #FFD700, #FFD700 7px, #1C1C1C 7px, #1C1C1C 14px) border-box',
+        background: 'linear-gradient(#2A2A2A, #2A2A2A) padding-box, repeating-linear-gradient(-45deg, #FFD700, #FFD700 7px, #1C1C1C 7px, #1C1C1C 14px) border-box',
         border: '3px solid transparent',
         color: '#FDF8EF',
       }}>
