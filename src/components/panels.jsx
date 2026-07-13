@@ -1,7 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
 import { mapOpenLibraryBook } from '../lib/openLibrary.js'
 import { ROYGBIV } from '../data/shelves.jsx'
-import { IconBooks, IconOpenBook, IconTrash, IconPencil, IconClose, IconCheck, IconLeaf, IconPerson, IconArrowUpRight } from './icons.jsx'
+import { IconBooks, IconOpenBook, IconTrash, IconPencil, IconClose, IconCheck, IconEye, IconLeaf, IconPerson, IconArrowUpRight } from './icons.jsx'
 import { PlacedFlower, PlacedFlower2, PlacedCoffeeCup, PlacedLight, PlacedClock } from './decor.jsx'
 import { TomaHead } from './scene.jsx'
 import { MonsterHatGraphic, TOMA_FACE_VIEWBOX, getHatPickerViewBox } from './hats.jsx'
@@ -184,19 +184,21 @@ function SidePanelButtons({ editDragging, onBook, onDecor, onShelves, onMonster,
 
   const buildBtn = isMobile ? (
     <div style={slide(true)} data-tour-target="edit-mode-toggle">
+      {/* Edit ⇄ View mode. In edit mode the button shows the *destination* — the
+          view-mode affordance — so tapping it is a clear "go back to viewing". */}
       <button onClick={onToggleEdit} style={{
         ...btnBase,
         padding: '7px 3px',
         background: isEditMode
-          ? '#FFD700'
+          ? '#254CA4'  // plain blue when in edit mode → "return to view" is a calm action
           : 'linear-gradient(#2A2A2A, #2A2A2A) padding-box, repeating-linear-gradient(-45deg, #FFD700, #FFD700 7px, #1C1C1C 7px, #1C1C1C 14px) border-box',
         border: '3px solid transparent',
-        color: isEditMode ? '#1C1C2E' : '#FDF8EF',
+        color: '#FDF8EF',
       }}>
         {isEditMode
-          ? <IconCheck size={22} color="#1C1C2E" />
+          ? <IconEye    size={22} color="#FDF8EF" />
           : <IconPencil size={22} color="#FDF8EF" />}
-        <span style={{ whiteSpace: 'nowrap', fontSize: isEditMode ? 10 : 12 }}>{isEditMode ? 'Stop edit' : 'Edit'}</span>
+        <span style={{ whiteSpace: 'nowrap', fontSize: isEditMode ? 10 : 12 }}>{isEditMode ? 'View mode' : 'Edit'}</span>
       </button>
     </div>
   ) : null

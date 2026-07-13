@@ -52,6 +52,16 @@ function IconCheck({ size = 18, color = 'currentColor' }) {
     </svg>
   )
 }
+function IconEye({ size = 22, color = 'currentColor' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 22 22" fill="none">
+      {/* almond-shaped eye outline */}
+      <path d="M1.5 11 C4 6, 7.5 4, 11 4 C14.5 4, 18 6, 20.5 11 C18 16, 14.5 18, 11 18 C7.5 18, 4 16, 1.5 11 Z"
+        stroke={color} strokeWidth="2" strokeLinejoin="round" fill="none" />
+      <circle cx="11" cy="11" r="3.4" stroke={color} strokeWidth="2" fill="none" />
+    </svg>
+  )
+}
 function IconRotate({ size = 28, color = 'currentColor' }) {
   return (
     <svg width={size} height={size} viewBox="0 0 28 28" fill="none">
@@ -97,4 +107,4 @@ function IconArrowUpRight({ size = 14, color = 'currentColor' }) {
 }
 
 
-export { IconBooks, IconOpenBook, IconTrash, IconPencil, IconClose, IconCheck, IconRotate, IconStar, IconLeaf, IconPerson, IconArrowUpRight }
+export { IconBooks, IconOpenBook, IconTrash, IconPencil, IconClose, IconCheck, IconEye, IconRotate, IconStar, IconLeaf, IconPerson, IconArrowUpRight }
