@@ -192,14 +192,14 @@ function EditableShelfRow({ shelf, shelfIdx, items, dragging, dropTarget, innerR
                     : undefined}
                 />
               )}
-              {it.type === 'flower'  && <PlacedFlower     w={it.slotWidth * SLOT_W} />}
-              {it.type === 'flower2' && <PlacedFlower2    w={it.slotWidth * SLOT_W} />}
-              {it.type === 'coffee'  && <PlacedCoffeeCup  w={it.slotWidth * SLOT_W} />}
-              {it.type === 'light'   && <PlacedLight      w={it.slotWidth * SLOT_W} />}
-              {it.type === 'clock'   && <PlacedClock       w={it.slotWidth * SLOT_W} />}
-              {it.type === 'pot'     && <PlacedFlower     w={it.slotWidth * SLOT_W} />}
-              {it.type === 'candle'  && <PlacedLight      w={it.slotWidth * SLOT_W} />}
-              {it.type === 'mug'     && <PlacedCoffeeCup  w={it.slotWidth * SLOT_W} />}
+              {it.type === 'flower'  && <PlacedFlower     w={it.slotWidth * SLOT_W} color={it.color} />}
+              {it.type === 'flower2' && <PlacedFlower2    w={it.slotWidth * SLOT_W} color={it.color} />}
+              {it.type === 'coffee'  && <PlacedCoffeeCup  w={it.slotWidth * SLOT_W} color={it.color} />}
+              {it.type === 'light'   && <PlacedLight      w={it.slotWidth * SLOT_W} color={it.color} />}
+              {it.type === 'clock'   && <PlacedClock       w={it.slotWidth * SLOT_W} color={it.color} />}
+              {it.type === 'pot'     && <PlacedFlower     w={it.slotWidth * SLOT_W} color={it.color} />}
+              {it.type === 'candle'  && <PlacedLight      w={it.slotWidth * SLOT_W} color={it.color} />}
+              {it.type === 'mug'     && <PlacedCoffeeCup  w={it.slotWidth * SLOT_W} color={it.color} />}
               </div>
             </div>
             )
@@ -252,14 +252,14 @@ function SavedShelfRow({ shelf, items, onBookClick, onEditClick, grabbedBookId, 
                   grabbedBookId={grabbedBookId}
                 />
               )}
-              {it.type === 'flower'  && <PlacedFlower     w={it.slotWidth * SLOT_W} />}
-              {it.type === 'flower2' && <PlacedFlower2    w={it.slotWidth * SLOT_W} />}
-              {it.type === 'coffee'  && <PlacedCoffeeCup  w={it.slotWidth * SLOT_W} />}
-              {it.type === 'light'   && <PlacedLight      w={it.slotWidth * SLOT_W} />}
-              {it.type === 'clock'   && <PlacedClock       w={it.slotWidth * SLOT_W} />}
-              {it.type === 'pot'     && <PlacedFlower     w={it.slotWidth * SLOT_W} />}
-              {it.type === 'candle'  && <PlacedLight      w={it.slotWidth * SLOT_W} />}
-              {it.type === 'mug'     && <PlacedCoffeeCup  w={it.slotWidth * SLOT_W} />}
+              {it.type === 'flower'  && <PlacedFlower     w={it.slotWidth * SLOT_W} color={it.color} />}
+              {it.type === 'flower2' && <PlacedFlower2    w={it.slotWidth * SLOT_W} color={it.color} />}
+              {it.type === 'coffee'  && <PlacedCoffeeCup  w={it.slotWidth * SLOT_W} color={it.color} />}
+              {it.type === 'light'   && <PlacedLight      w={it.slotWidth * SLOT_W} color={it.color} />}
+              {it.type === 'clock'   && <PlacedClock       w={it.slotWidth * SLOT_W} color={it.color} />}
+              {it.type === 'pot'     && <PlacedFlower     w={it.slotWidth * SLOT_W} color={it.color} />}
+              {it.type === 'candle'  && <PlacedLight      w={it.slotWidth * SLOT_W} color={it.color} />}
+              {it.type === 'mug'     && <PlacedCoffeeCup  w={it.slotWidth * SLOT_W} color={it.color} />}
             </div>
           ))}
         </div>
@@ -328,11 +328,11 @@ function DragGhost({ dragging, ghostRef, dragRotated, stageSc = 1, shelfH = SHEL
     ty = -(gH / 2)
     content = (
       <>
-        {dragging?.type === 'flower'  && <PlacedFlower    w={innerW} />}
-        {dragging?.type === 'flower2' && <PlacedFlower2   w={innerW} />}
-        {dragging?.type === 'coffee'  && <PlacedCoffeeCup w={innerW} />}
-        {dragging?.type === 'light'   && <PlacedLight     w={innerW} />}
-        {dragging?.type === 'clock'   && <PlacedClock     w={innerW} />}
+        {dragging?.type === 'flower'  && <PlacedFlower    w={innerW} color={dragging.color} />}
+        {dragging?.type === 'flower2' && <PlacedFlower2   w={innerW} color={dragging.color} />}
+        {dragging?.type === 'coffee'  && <PlacedCoffeeCup w={innerW} color={dragging.color} />}
+        {dragging?.type === 'light'   && <PlacedLight     w={innerW} color={dragging.color} />}
+        {dragging?.type === 'clock'   && <PlacedClock     w={innerW} color={dragging.color} />}
       </>
     )
   }
@@ -494,11 +494,11 @@ function ShelfRow({ shelf, hoveredId, grabbedId, onEnter, onLeave, onClick, onEd
                 ))}
               </div>
             )
-            if (item.type === 'flower')  return <div key={item.id} style={{ width: 74, height: '100%', flexShrink: 0 }}><PlacedFlower w={74} /></div>
-            if (item.type === 'flower2') return <div key={item.id} style={{ width: 74, height: '100%', flexShrink: 0 }}><PlacedFlower2 w={74} /></div>
-            if (item.type === 'coffee')  return <div key={item.id} style={{ width: 74, height: '100%', flexShrink: 0 }}><PlacedCoffeeCup w={74} /></div>
-            if (item.type === 'light')   return <div key={item.id} style={{ width: 74, height: '100%', flexShrink: 0 }}><PlacedLight w={74} /></div>
-            if (item.type === 'clock')   return <div key={item.id} style={{ width: 74, height: '100%', flexShrink: 0 }}><PlacedClock w={74} /></div>
+            if (item.type === 'flower')  return <div key={item.id} style={{ width: 74, height: '100%', flexShrink: 0 }}><PlacedFlower w={74} color={item.color} /></div>
+            if (item.type === 'flower2') return <div key={item.id} style={{ width: 74, height: '100%', flexShrink: 0 }}><PlacedFlower2 w={74} color={item.color} /></div>
+            if (item.type === 'coffee')  return <div key={item.id} style={{ width: 74, height: '100%', flexShrink: 0 }}><PlacedCoffeeCup w={74} color={item.color} /></div>
+            if (item.type === 'light')   return <div key={item.id} style={{ width: 74, height: '100%', flexShrink: 0 }}><PlacedLight w={74} color={item.color} /></div>
+            if (item.type === 'clock')   return <div key={item.id} style={{ width: 74, height: '100%', flexShrink: 0 }}><PlacedClock w={74} color={item.color} /></div>
             return null
           })}
         </div>

@@ -132,7 +132,7 @@ function reconstructShelf({ rows, bookItems = [], stackBooks = [], decorItems = 
     const rowDecorItems = decorItems
       .filter(i => i.shelf_row_id === row.id)
       .sort((a, b) => a.start_slot - b.start_slot)
-      .map(item => ({ id: item.id, type: item.decor_type, startSlot: item.start_slot, slotWidth: item.slot_width }))
+      .map(item => ({ id: item.id, type: item.decor_type, startSlot: item.start_slot, slotWidth: item.slot_width, color: item.decor_color }))
 
     return [...rowBookItems, ...rowDecorItems].sort((a, b) => a.startSlot - b.startSlot)
   })

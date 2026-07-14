@@ -3,6 +3,7 @@ import { mapOpenLibraryBook } from '../lib/openLibrary.js'
 import { ROYGBIV } from '../data/shelves.jsx'
 import { IconBooks, IconOpenBook, IconTrash, IconPencil, IconClose, IconCheck, IconEye, IconLeaf, IconPerson, IconArrowUpRight } from './icons.jsx'
 import { PlacedFlower, PlacedFlower2, PlacedCoffeeCup, PlacedLight, PlacedClock } from './decor.jsx'
+import { DECOR_COLORS, DECOR_COLOR_DEFAULT } from '../data/decorColors.jsx'
 import { TomaHead } from './scene.jsx'
 import { MonsterHatGraphic, TOMA_FACE_VIEWBOX, getHatPickerViewBox } from './hats.jsx'
 import { AccessoryOnlyPreview, MonsterAccessoryGraphic } from './accessories.jsx'
@@ -166,15 +167,16 @@ function SidePanelButtons({ editDragging, onBook, onDecor, onShelves, onMonster,
           </>)}
           {topItem.type === 'decor' && (() => {
             const dt = topItem.decorType
+            const dc = topItem.decorColor
             const decorW = isMobile ? 22 : 26
             const wrap = child => (
               <div className="inv-decor-preview-wrap picker-preview-shadow" style={invDecorWrap}>{child}</div>
             )
-            if (dt === 'flower')  return wrap(<PlacedFlower    w={decorW} />)
-            if (dt === 'flower2') return wrap(<PlacedFlower2   w={decorW} />)
-            if (dt === 'coffee')  return wrap(<PlacedCoffeeCup w={decorW} />)
-            if (dt === 'light')   return wrap(<PlacedLight     w={decorW} />)
-            if (dt === 'clock')   return wrap(<PlacedClock     w={decorW} />)
+            if (dt === 'flower')  return wrap(<PlacedFlower    w={decorW} color={dc} />)
+            if (dt === 'flower2') return wrap(<PlacedFlower2   w={decorW} color={dc} />)
+            if (dt === 'coffee')  return wrap(<PlacedCoffeeCup w={decorW} color={dc} />)
+            if (dt === 'light')   return wrap(<PlacedLight     w={decorW} color={dc} />)
+            if (dt === 'clock')   return wrap(<PlacedClock     w={decorW} color={dc} />)
             return null
           })()}
         </div>
@@ -599,14 +601,15 @@ function BookAddPanel({ isOpen, selectedBooks, onToggleBook, onConfirm, onClose,
 
 function DecorAddPanel({ isOpen, onSelect, onClose, isMobile = false }) {
   const [picked, setPicked] = useState(null)
+  const [pickedColor, setPickedColor] = useState(DECOR_COLOR_DEFAULT)
   if (!isOpen) return null
   const decorPreviewSize = isMobile ? 26 : 28
   const items = [
-    { type: 'flower',  label: 'Plant',   preview: <div className="decor-preview-wrap picker-preview-shadow"><PlacedFlower    w={decorPreviewSize} /></div> },
-    { type: 'flower2', label: 'Plant 2', preview: <div className="decor-preview-wrap picker-preview-shadow"><PlacedFlower2   w={decorPreviewSize} /></div> },
-    { type: 'coffee',  label: 'Coffee',  preview: <div className="decor-preview-wrap picker-preview-shadow"><PlacedCoffeeCup w={decorPreviewSize} /></div> },
-    { type: 'light',   label: 'Candle',  preview: <div className="decor-preview-wrap picker-preview-shadow"><PlacedLight     w={decorPreviewSize} /></div> },
-    { type: 'clock',   label: 'Clock',   preview: <div className="decor-preview-wrap picker-preview-shadow"><PlacedClock     w={decorPreviewSize - 2} /></div> },
+    { type: 'flower',  label: 'Plant',   preview: <div className="decor-preview-wrap picker-preview-shadow"><PlacedFlower    w={decorPreviewSize} color={pickedColor} /></div> },
+    { type: 'flower2', label: 'Plant 2', preview: <div className="decor-preview-wrap picker-preview-shadow"><PlacedFlower2   w={decorPreviewSize} color={pickedColor} /></div> },
+    { type: 'coffee',  label: 'Coffee',  preview: <div className="decor-preview-wrap picker-preview-shadow"><PlacedCoffeeCup w={decorPreviewSize} color={pickedColor} /></div> },
+    { type: 'light',   label: 'Candle',  preview: <div className="decor-preview-wrap picker-preview-shadow"><PlacedLight     w={decorPreviewSize} color={pickedColor} /></div> },
+    { type: 'clock',   label: 'Clock',   preview: <div className="decor-preview-wrap picker-preview-shadow"><PlacedClock     w={decorPreviewSize - 2} color={pickedColor} /></div> },
   ]
   return (
     <BottomSheet
@@ -639,11 +642,18 @@ function DecorAddPanel({ isOpen, onSelect, onClose, isMobile = false }) {
           })}
         </div>
 
+        <FieldLabel style={{ marginTop: 18, marginBottom: 10 }}>Color</FieldLabel>
+        <ColorSwatchRow
+          value={pickedColor}
+          onChange={setPickedColor}
+          colors={DECOR_COLORS}
+        />
+
         <Button
           fullWidth
           disabled={!picked}
-          onClick={picked ? () => { const p = picked; setPicked(null); onSelect(p) } : undefined}
-          style={{ marginTop: 20 }}
+          onClick={picked ? () => { const p = picked; const c = pickedColor; setPicked(null); onSelect(p, c) } : undefined}
+          style={{ marginTop: 12 }}
         >
           {picked ? (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>

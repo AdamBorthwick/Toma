@@ -1,5 +1,6 @@
 import { supabase } from './supabase.js'
 import { normalizeHatKey, normalizeHatColorKey, normalizeEyeColorKey, normalizeEyeShapeKey, normalizeAccessoryKey, normalizeAccessoryColorKey, MONSTER_LOOK_DEFAULTS } from './data/monster.jsx'
+import { DECOR_COLOR_DEFAULT } from './data/decorColors.jsx'
 
 // ── Errors ────────────────────────────────────────────────────────────────────
 
@@ -231,7 +232,7 @@ async function _loadRows(bookcaseId) {
   const decorItems = rowIds.length
     ? check(
         await supabase.from('shelf_decor')
-          .select('id, shelf_row_id, decor_type, start_slot, slot_width')
+          .select('id, shelf_row_id, decor_type, decor_color, start_slot, slot_width')
           .in('shelf_row_id', rowIds),
         'load shelf decor'
       ) ?? []
@@ -292,6 +293,7 @@ async function _insertShelfContents(savedRows, shelfContents) {
           decorItemsForRow.map(item => ({
             shelf_row_id: row.id,
             decor_type:   item.type,
+            decor_color:  item.color ?? DECOR_COLOR_DEFAULT,
             start_slot:   item.startSlot,
             slot_width:   item.slotWidth,
           }))
@@ -500,7 +502,7 @@ export async function loadInventory(userId) {
   const data = check(
     await supabase
       .from('inventory_items')
-      .select('id, item_type, book_id, book_ids, decor_type, books(*)')
+      .select('id, item_type, book_id, book_ids, decor_type, decor_color, books(*)')
       .eq('user_id', userId)
       .order('added_at'),
     'load inventory'
@@ -526,6 +528,7 @@ export async function loadInventory(userId) {
       ? (r.book_ids ?? []).map(id => stackBooksById.get(id)).filter(Boolean)
       : null,
     decorType: r.decor_type ?? null,
+    decorColor: r.decor_color ?? null,
   }))
 }
 
@@ -560,11 +563,11 @@ export async function addInventoryStack(userId, books) {
   return data.id
 }
 
-export async function addInventoryDecor(userId, decorType) {
+export async function addInventoryDecor(userId, decorType, decorColor) {
   const data = check(
     await supabase
       .from('inventory_items')
-      .insert({ user_id: userId, item_type: 'decor', decor_type: decorType })
+      .insert({ user_id: userId, item_type: 'decor', decor_type: decorType, decor_color: decorColor ?? DECOR_COLOR_DEFAULT })
       .select('id').single(),
     'add inventory decor'
   )

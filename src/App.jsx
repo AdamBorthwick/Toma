@@ -2007,10 +2007,10 @@ export default function App() {
     setStackBooks([])
   }
 
-  function handleDecorSelect(type) {
+  function handleDecorSelect(type, color) {
     setShowDecorPanel(false)
     startEditDrag({ clientX: window.innerWidth / 2, clientY: window.innerHeight / 2 },
-      { type, slotWidth: 2 })
+      { type, slotWidth: 2, color })
   }
 
   function startEditDrag(e, info) {
@@ -2268,6 +2268,7 @@ export default function App() {
             startSlot: dt.startSlot,
             ...(drag.book  ? { book: drag.book }   : {}),
             ...(drag.books ? { books: drag.books } : {}),
+            ...(drag.color ? { color: drag.color } : {}),
           }
           setShelfContents(sc => {
             const updated = sc.map(r => [...r])
@@ -2293,8 +2294,8 @@ export default function App() {
             .then(invId => setInventory(prev => [{ id: invId, type: 'stack', books: drag.books }, ...prev].slice(0, 5)))
             .catch(() => setSaveStatus('error'))
         } else if (drag.type !== 'vertical-book' && drag.type !== 'horizontal-stack' && userId) {
-          addInventoryDecor(userId, drag.type)
-            .then(invId => setInventory(prev => [{ id: invId, type: 'decor', decorType: drag.type }, ...prev].slice(0, 5)))
+          addInventoryDecor(userId, drag.type, drag.color)
+            .then(invId => setInventory(prev => [{ id: invId, type: 'decor', decorType: drag.type, decorColor: drag.color }, ...prev].slice(0, 5)))
             .catch(() => setSaveStatus('error'))
         }
       } else if (drag.sourceItem != null) {
@@ -2381,6 +2382,7 @@ export default function App() {
       sourceItem: item, sourceShelfIdx: shelfIdx,
       ...(item.book  ? { book: item.book }   : {}),
       ...(item.books ? { books: item.books } : {}),
+      ...(item.color ? { color: item.color } : {}),
     }
     const placeArm = () => {
       const cx = viewportMouseRef.current?.x ?? e.clientX
@@ -3563,7 +3565,7 @@ export default function App() {
                 { type: 'horizontal-stack', slotWidth: 5, books: item.books, sourceInventoryId: item.id })
             } else {
               startEditDrag({ clientX: window.innerWidth / 2, clientY: window.innerHeight / 2 },
-                { type: item.decorType, slotWidth: 2, sourceInventoryId: item.id })
+                { type: item.decorType, slotWidth: 2, color: item.decorColor, sourceInventoryId: item.id })
             }
             setShowBookPanel(false); setShowDecorPanel(false)
           }}

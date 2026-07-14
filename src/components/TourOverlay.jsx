@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Button, DialogCard, DialogTitle, DialogDescription, DialogActions } from './ui/index.js'
 import { Z } from '../lib/zIndex.js'
+import { computeFingerPaths } from '../lib/geometry.js'
 
 // z-index above every panel/dialog but below the toast layer. The onboarding form
 // itself sits at Z.onboarding (9999) but by design the tour only starts AFTER
@@ -43,7 +44,12 @@ export function TourOverlay({ step, steps, isMobile = false, onNext, onFinish })
       const el = document.querySelector(`[data-tour-target="${targetKey}"]`)
       if (!el) { setRect(null); return }
       const r = el.getBoundingClientRect()
-      setRect({ left: r.left, top: r.top, width: r.width, height: r.height })
+      // Capture the target's own corner radius so the spotlight cutout matches
+      // it exactly — otherwise a hardcoded r=14 looks inconsistent against
+      // buttons rounded at 11 (edit-mode toggle) or 16 (customization row).
+      const cs = window.getComputedStyle(el)
+      const rawR = parseFloat(cs.borderTopLeftRadius) || 0
+      setRect({ left: r.left, top: r.top, width: r.width, height: r.height, radius: rawR })
     }
     function schedule() {
       if (rafRef.current) return
@@ -92,32 +98,56 @@ export function TourOverlay({ step, steps, isMobile = false, onNext, onFinish })
       transform: 'translate(-50%, -50%)',
       zIndex: TOUR_Z + 1,
     }
-  } else if (isMobile) {
-    // Dock at the bottom so the card doesn't cover the top-left zoom button or
-    // the header toggle. The spotlight already indicates the target location.
-    const bottomFromTop = vh - CARD_EDGE_INSET
-    cardStyle = {
-      position: 'fixed',
-      left: '50%',
-      bottom: CARD_EDGE_INSET,
-      transform: 'translateX(-50%)',
-      zIndex: TOUR_Z + 1,
-    }
-    void bottomFromTop
   } else {
-    // Desktop: choose above or below whichever has more headroom, clamped
-    // horizontally near the target's centre-x.
-    const spaceAbove = rect.top
-    const spaceBelow = vh - (rect.top + rect.height)
-    const cardHeightEst = 200  // rough — enough to pick a side
-    const above = spaceAbove > spaceBelow && spaceAbove > cardHeightEst + CARD_MARGIN
-    const top = above
-      ? Math.max(CARD_EDGE_INSET, rect.top - CARD_MARGIN - cardHeightEst)
-      : Math.min(vh - cardHeightEst - CARD_EDGE_INSET, rect.top + rect.height + CARD_MARGIN)
-    let left = rect.left + rect.width / 2 - CARD_WIDTH / 2
-    left = Math.max(CARD_EDGE_INSET, Math.min(vw - CARD_WIDTH - CARD_EDGE_INSET, left))
+    // Pick whichever side of the target has the most free space so the card
+    // never covers the button it's pointing at. Estimated card height is rough
+    // — good enough to compare sides. Desktop and mobile share this logic; on
+    // mobile the target's on-screen size just means "below" wins by default
+    // when the target is at the top, and "above" wins for bottom-docked bars.
+    const cardHeightEst = 220
+    const spaceAbove = rect.top - CARD_MARGIN - CARD_EDGE_INSET
+    const spaceBelow = vh - (rect.top + rect.height) - CARD_MARGIN - CARD_EDGE_INSET
+    const spaceLeft  = rect.left - CARD_MARGIN - CARD_EDGE_INSET
+    const spaceRight = vw - (rect.left + rect.width) - CARD_MARGIN - CARD_EDGE_INSET
+    // A side is viable only if the card actually fits there. Prefer above/below
+    // when they fit — they read as more natural for a tooltip; fall back to
+    // left/right for tall targets like the desktop customization column.
+    const fitsAbove = spaceAbove >= cardHeightEst
+    const fitsBelow = spaceBelow >= cardHeightEst
+    const fitsLeft  = spaceLeft  >= CARD_WIDTH
+    const fitsRight = spaceRight >= CARD_WIDTH
+    let side
+    if (fitsAbove || fitsBelow) side = spaceAbove > spaceBelow && fitsAbove ? 'above' : 'below'
+    else if (fitsLeft || fitsRight) side = spaceLeft > spaceRight && fitsLeft ? 'left' : 'right'
+    else side = spaceAbove >= spaceBelow ? 'above' : 'below'  // best-effort
+
+    let top, bottom, left
+    if (side === 'above') {
+      // Anchor by `bottom` (distance up from the target's top edge) instead of
+      // computing `top` from an estimated card height. Steps whose body copy is a
+      // different length render at different actual heights, so anchoring by top
+      // with a fixed height guess left inconsistent gaps above different targets
+      // (e.g. the edit-mode-toggle step sat closer to its target than the
+      // customization step). Anchoring by bottom keeps the gap-to-target — and
+      // since both targets dock at the same screen height, the gap-to-screen-bottom
+      // too — identical regardless of actual card height.
+      bottom = Math.max(CARD_EDGE_INSET, vh - rect.top + CARD_MARGIN)
+      left = rect.left + rect.width / 2 - CARD_WIDTH / 2
+      left = Math.max(CARD_EDGE_INSET, Math.min(vw - CARD_WIDTH - CARD_EDGE_INSET, left))
+    } else if (side === 'below') {
+      top = Math.min(vh - cardHeightEst - CARD_EDGE_INSET, rect.top + rect.height + CARD_MARGIN)
+      left = rect.left + rect.width / 2 - CARD_WIDTH / 2
+      left = Math.max(CARD_EDGE_INSET, Math.min(vw - CARD_WIDTH - CARD_EDGE_INSET, left))
+    } else {
+      left = side === 'left'
+        ? Math.max(CARD_EDGE_INSET, rect.left - CARD_MARGIN - CARD_WIDTH)
+        : Math.min(vw - CARD_WIDTH - CARD_EDGE_INSET, rect.left + rect.width + CARD_MARGIN)
+      top = rect.top + rect.height / 2 - cardHeightEst / 2
+      top = Math.max(CARD_EDGE_INSET, Math.min(vh - cardHeightEst - CARD_EDGE_INSET, top))
+    }
     cardStyle = {
-      position: 'fixed', left, top,
+      position: 'fixed', left,
+      ...(bottom != null ? { bottom } : { top }),
       zIndex: TOUR_Z + 1,
     }
   }
@@ -164,7 +194,12 @@ function SpotlightBackdrop({ rect }) {
     return <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: TOUR_Z, pointerEvents: 'auto' }} />
   }
   const pad = 10
-  const r = 14
+  // Cutout radius follows the target's own border-radius (plus the pad) so the
+  // spotlight matches whatever the highlighted button uses — pill toggle (11),
+  // customization tile (16), etc. Fall back to a modest default if the target
+  // has no radius or wasn't measurable.
+  const targetR = Number.isFinite(rect.radius) ? rect.radius : 12
+  const r = targetR > 0 ? targetR + pad : 12
   const x = Math.max(0, rect.left - pad)
   const y = Math.max(0, rect.top - pad)
   const w = Math.min(vw, rect.width + pad * 2)
@@ -218,17 +253,27 @@ function useViewportSize() {
   return size
 }
 
+// Demo hand's grip — reuses the real finger-path generator from lib/geometry.js
+// (the same function that drives the actual grab hand in App.jsx) so the open
+// and gripping states are the exact same shapes, just pre-computed once since
+// this demo doesn't have a live gripExtend value to animate against.
+const DEMO_HAND_COLOR = '#72FF5D'   // tour's own accent green — matches the spotlight ring
+const DEMO_FINGERS_OPEN = computeFingerPaths(0)
+const DEMO_FINGERS_GRIP = computeFingerPaths(1)
+
 // ─── Book-move demo (step 2) ─────────────────────────────────────────────────
 // Purely decorative: a mini-shelf with three slots and a book that slides from
-// slot 0 to slot 2 on a loop, with a hand icon riding above it. No dependency
-// on the real shelf/arm state.
+// slot 0 to slot 2 on a loop, with the real grab-hand asset attached to its right
+// edge (no dependency on the real shelf/arm *state* — just the same shapes).
+// Book proportions match the real shelf: SLOT_W=37, SHELF_H=168, ~1:3.9 aspect
+// ratio (see lib/layout.js).
 function BookMoveDemo() {
   return (
     <div style={{ margin: '4px 0 18px', display: 'flex', justifyContent: 'center' }}>
       <style>{demoKeyframes}</style>
       <div style={{
         position: 'relative',
-        width: 260, height: 96,
+        width: 260, height: 170,
         borderRadius: 10,
         background: 'linear-gradient(180deg, #A4501D 0%, #EA8B50 12%)',
         overflow: 'hidden',
@@ -238,44 +283,95 @@ function BookMoveDemo() {
         {[0, 1, 2].map(i => (
           <div key={i} style={{
             position: 'absolute',
-            left: 20 + i * 76,
-            bottom: 6,
-            width: 44, height: 66,
+            left: DEMO_BOOK_LEFT + i * 70,
+            bottom: DEMO_BOOK_BOTTOM,
+            width: DEMO_BOOK_W, height: DEMO_BOOK_H,
             border: '1.5px dashed rgba(0,0,0,0.15)',
-            borderRadius: 3,
+            borderRadius: '3px 3px 2px 2px',
           }} />
         ))}
-        {/* The moving book */}
+        {/* The moving book — matches PlacedVerticalBook proportions and styling */}
         <div style={{
           position: 'absolute',
-          left: 20, bottom: 6,
-          width: 44, height: 66,
+          left: DEMO_BOOK_LEFT, bottom: DEMO_BOOK_BOTTOM,
+          width: DEMO_BOOK_W, height: DEMO_BOOK_H,
           background: '#254CA4',
-          borderRadius: '3px 3px 1px 1px',
-          boxShadow: 'inset -2px 0 5px rgba(0,0,0,0.22), 0 6px 12px rgba(0,0,0,0.28)',
+          borderRadius: '3px 3px 2px 2px',
+          boxShadow: 'inset -3px 0 6px rgba(0,0,0,0.18), 0 2px 3px rgba(0,0,0,0.12)',
           animation: 'tourBookSlide 2.8s ease-in-out infinite',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
           <span style={{
             writingMode: 'vertical-rl', fontFamily: "'Manrope', sans-serif",
-            fontWeight: 700, fontSize: 9, color: '#FDF8EF', letterSpacing: '0.5px',
+            fontWeight: 700, fontSize: 10, color: '#FDF8EF', letterSpacing: '0.5px',
           }}>Sample</span>
         </div>
-        {/* The hand cursor above the book */}
-        <div style={{
-          position: 'absolute',
-          left: 44, bottom: 66,
-          width: 22, height: 22,
-          animation: 'tourHandSlide 2.8s ease-in-out infinite',
-          pointerEvents: 'none',
-        }}>
-          <svg viewBox="0 0 22 22" fill="none">
-            <circle cx="11" cy="11" r="7" fill="#72FF5D" stroke="#3BD424" strokeWidth="1.5" />
-            <circle cx="11" cy="11" r="2" fill="#1C1C2E" />
-          </svg>
-        </div>
+        <DemoHand />
       </div>
     </div>
+  )
+}
+
+// Book geometry, shared with the placement math below so the hand always locks
+// onto the book's actual right edge / vertical center rather than duplicated
+// magic numbers drifting apart from it.
+const DEMO_BOOK_LEFT = 45, DEMO_BOOK_BOTTOM = 8, DEMO_BOOK_W = 30, DEMO_BOOK_H = 118
+const DEMO_BOOK_RIGHT = DEMO_BOOK_LEFT + DEMO_BOOK_W
+const DEMO_BOOK_CENTER_Y = DEMO_BOOK_BOTTOM + DEMO_BOOK_H / 2
+
+// Grabbing hand attached to the book's right edge, vertically centered on it —
+// same palm/thumb/finger shapes as the real arm asset in App.jsx (path literals
+// copied verbatim from the hand group there, fingers from the shared
+// computeFingerPaths helper, rescaled via viewBox), with the real asset's
+// forearm reaching in from the right rather than from above, matching how the
+// real arm grabs a book by its side rather than its top.
+const DEMO_HAND_W = 70, DEMO_HAND_H = 54
+const DEMO_HAND_LEFT = DEMO_BOOK_RIGHT - 16   // fingers overlap the book edge for a gripped look
+const DEMO_HAND_BOTTOM = DEMO_BOOK_CENTER_Y - DEMO_HAND_H / 2
+const DEMO_FOREARM_LEFT = DEMO_HAND_LEFT + 40  // reaches well under the palm so the two visibly overlap
+const DEMO_FOREARM_H = 24
+const DEMO_FOREARM_BOTTOM = DEMO_BOOK_CENTER_Y - DEMO_FOREARM_H / 2
+const DEMO_FOREARM_OVERSHOOT = 40  // extends past the shelf's right edge, clipped by its overflow:hidden
+
+function DemoHand() {
+  return (
+    <>
+      {/* Forearm — a straight rounded bar reaching in from off-shelf on the right,
+          echoing the real upper-arm/forearm strokes drawn in App.jsx. Slides with
+          the hand and book as one rigid unit via the shared tourHandSlide keyframes. */}
+      <div style={{
+        position: 'absolute',
+        left: DEMO_FOREARM_LEFT, bottom: DEMO_FOREARM_BOTTOM,
+        width: 260 + DEMO_FOREARM_OVERSHOOT - DEMO_FOREARM_LEFT, height: DEMO_FOREARM_H,
+        background: DEMO_HAND_COLOR,
+        borderRadius: DEMO_FOREARM_H / 2,
+        animation: 'tourHandSlide 2.8s ease-in-out infinite',
+        pointerEvents: 'none',
+      }} />
+      <div style={{
+        position: 'absolute',
+        left: DEMO_HAND_LEFT, bottom: DEMO_HAND_BOTTOM,
+        width: DEMO_HAND_W, height: DEMO_HAND_H,
+        animation: 'tourHandSlide 2.8s ease-in-out infinite',
+        pointerEvents: 'none',
+      }}>
+        <svg viewBox="-10 -60 150 115" width={DEMO_HAND_W} height={DEMO_HAND_H} style={{ overflow: 'visible' }}>
+          <path d="M86 -40 C 72 -55, 44 -53, 33 -45" stroke={DEMO_HAND_COLOR} strokeWidth="23" strokeLinecap="round" fill="none" />
+          <circle cx="92" cy="0" r="44" fill={DEMO_HAND_COLOR} />
+          <path d={DEMO_FINGERS_OPEN.index} stroke={DEMO_HAND_COLOR} strokeWidth="23" strokeLinecap="round" fill="none" />
+          <g style={{ animation: 'tourGripOpen 2.8s ease-in-out infinite' }}>
+            <path d={DEMO_FINGERS_OPEN.middle} stroke={DEMO_HAND_COLOR} strokeWidth="23" strokeLinecap="round" fill="none" />
+            <path d={DEMO_FINGERS_OPEN.ring}   stroke={DEMO_HAND_COLOR} strokeWidth="23" strokeLinecap="round" fill="none" />
+            <path d={DEMO_FINGERS_OPEN.pinky}  stroke={DEMO_HAND_COLOR} strokeWidth="23" strokeLinecap="round" fill="none" />
+          </g>
+          <g style={{ animation: 'tourGripClosed 2.8s ease-in-out infinite' }}>
+            <path d={DEMO_FINGERS_GRIP.middle} stroke={DEMO_HAND_COLOR} strokeWidth="23" strokeLinecap="round" fill="none" />
+            <path d={DEMO_FINGERS_GRIP.ring}   stroke={DEMO_HAND_COLOR} strokeWidth="23" strokeLinecap="round" fill="none" />
+            <path d={DEMO_FINGERS_GRIP.pinky}  stroke={DEMO_HAND_COLOR} strokeWidth="23" strokeLinecap="round" fill="none" />
+          </g>
+        </svg>
+      </div>
+    </>
   )
 }
 
@@ -283,13 +379,23 @@ const demoKeyframes = `
 @keyframes tourBookSlide {
   0%, 12%   { transform: translate(0, 0); }
   20%       { transform: translate(0, -14px); }
-  50%       { transform: translate(152px, -14px); }
-  60%, 100% { transform: translate(152px, 0); }
+  50%       { transform: translate(140px, -14px); }
+  60%, 100% { transform: translate(140px, 0); }
 }
 @keyframes tourHandSlide {
   0%, 12%   { transform: translate(0, 0); opacity: 1; }
   20%       { transform: translate(0, -14px); }
-  50%       { transform: translate(152px, -14px); }
-  60%, 100% { transform: translate(152px, 0); opacity: 1; }
+  50%       { transform: translate(140px, -14px); }
+  60%, 100% { transform: translate(140px, 0); opacity: 1; }
+}
+@keyframes tourGripOpen {
+  0%, 8%    { opacity: 1; }
+  16%, 54%  { opacity: 0; }
+  62%, 100% { opacity: 1; }
+}
+@keyframes tourGripClosed {
+  0%, 8%    { opacity: 0; }
+  16%, 54%  { opacity: 1; }
+  62%, 100% { opacity: 0; }
 }
 `

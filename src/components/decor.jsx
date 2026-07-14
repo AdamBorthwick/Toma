@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react'
+import { getDecorColor } from '../data/decorColors.jsx'
 
-function PlacedFlower({ w }) {
+function PlacedFlower({ w, color }) {
   const [hov, setHov] = useState(false)
   const sw = Number.isFinite(w) ? w : 74
   const plantW = Math.round(sw * 1.28)
   const plantH = Math.round(plantW * 201 / 197)
   const potH   = Math.round(sw * 82 / 197)
+  const c = getDecorColor(color)
   return (
     <div
       onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
@@ -25,18 +27,19 @@ function PlacedFlower({ w }) {
       </div>
       {/* Pot only — fixed, same size */}
       <svg width={sw} height={potH} viewBox="0 201 197 82" fill="none" style={{ flexShrink: 0, display: 'block', position: 'relative', zIndex: 1 }}>
-        <path d="M44 201H154L143.424 248.903C148.674 265.83 136.023 283 118.301 283H80.1838C62.5366 283 50.2047 265.533 56.1117 248.903L44 201Z" fill="#FDF8EF"/>
+        <path d="M44 201H154L143.424 248.903C148.674 265.83 136.023 283 118.301 283H80.1838C62.5366 283 50.2047 265.533 56.1117 248.903L44 201Z" fill={c.body}/>
       </svg>
     </div>
   )
 }
 
-function PlacedFlower2({ w }) {
+function PlacedFlower2({ w, color }) {
   const [hov, setHov] = useState(false)
   const sw = Number.isFinite(w) ? w : 74
   const plantW = Math.round(sw * 1.28)
   const plantH = Math.round(plantW * 201 / 197)
   const potH   = Math.round(sw * 82 / 197)
+  const c = getDecorColor(color)
   return (
     <div
       onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
@@ -57,16 +60,17 @@ function PlacedFlower2({ w }) {
       </div>
       {/* Pot only — fixed, same size */}
       <svg width={sw} height={potH} viewBox="0 201 197 82" fill="none" style={{ flexShrink: 0, display: 'block', position: 'relative', zIndex: 1 }}>
-        <path d="M44 201H154L143.424 248.903C148.674 265.83 136.023 283 118.301 283H80.1838C62.5366 283 50.2047 265.533 56.1117 248.903L44 201Z" fill="#FDF8EF"/>
+        <path d="M44 201H154L143.424 248.903C148.674 265.83 136.023 283 118.301 283H80.1838C62.5366 283 50.2047 265.533 56.1117 248.903L44 201Z" fill={c.body}/>
       </svg>
     </div>
   )
 }
 
-function PlacedCoffeeCup({ w }) {
+function PlacedCoffeeCup({ w, color }) {
   const sw = Number.isFinite(w) ? w : 74
   const cupW = Math.round(sw * 1.2)
   const cupH = Math.round(cupW * 228 / 148)
+  const c = getDecorColor(color)
   return (
     <div style={{ position: 'relative', width: sw, height: '100%', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
       <svg width={cupW} height={cupH} viewBox="0 0 148 228" fill="none" overflow="visible">
@@ -76,16 +80,17 @@ function PlacedCoffeeCup({ w }) {
         <ellipse cx="72" cy="143" rx="8" ry="8" fill="#E9E9E9" style={{ animation: 'steamFloat 4.5s ease-in-out 2.25s infinite' }}/>
         <ellipse cx="52" cy="141" rx="6" ry="6" fill="#E9E9E9" style={{ animation: 'steamFloat 4.5s ease-in-out 3.375s infinite' }}/>
         {/* Handle */}
-        <path d="M101 153.464C101 153.464 114.988 150.228 121.858 160.853C132.818 177.802 129.827 192.823 121.858 205.147C114.988 215.772 101 212.537 101 212.537" stroke="#FDF8EF" strokeWidth="11.8331"/>
+        <path d="M101 153.464C101 153.464 114.988 150.228 121.858 160.853C132.818 177.802 129.827 192.823 121.858 205.147C114.988 215.772 101 212.537 101 212.537" stroke={c.body} strokeWidth="11.8331"/>
         {/* Cup body — draws over steam at start, steam emerges above rim as it rises */}
-        <path d="M104.073 139.109H15.5433V222.572C15.5433 225.333 17.7819 227.572 20.5433 227.572H99.073C101.834 227.572 104.073 225.333 104.073 222.572V139.109Z" fill="#FDF8EF"/>
+        <path d="M104.073 139.109H15.5433V222.572C15.5433 225.333 17.7819 227.572 20.5433 227.572H99.073C101.834 227.572 104.073 225.333 104.073 222.572V139.109Z" fill={c.body}/>
       </svg>
     </div>
   )
 }
 
-function PlacedLight({ w }) {
+function PlacedLight({ w, color }) {
   const sw = Number.isFinite(w) ? w : 74
+  const c = getDecorColor(color)
   return (
     <div style={{ position: 'relative', width: sw, height: '100%', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
       <svg width={sw} height={Math.round(sw * 162 / 117)} viewBox="0 0 117 162" fill="none">
@@ -93,17 +98,18 @@ function PlacedLight({ w }) {
         <circle cx="58.443" cy="62.4756" r="29.2899" fill="#FFF5C3" fillOpacity="0.71" style={{ animation: 'candleGlow 3.8s ease-in-out 0.4s infinite' }}/>
         <circle cx="58.443" cy="62.4756" r="13.7296" fill="#FFC9AE" fillOpacity="0.71" style={{ animation: 'candleGlow 3.8s ease-in-out 0.8s infinite' }}/>
         <circle cx="59" cy="62" r="4" fill="#FF8649" style={{ animation: 'candleGlow 3.8s ease-in-out 0.2s infinite' }}/>
-        <path d="M43.7985 71.6287C46.0393 69.3132 70.0396 60.6485 76.7497 71.6287C80.8503 78.3388 76.7497 83.9016 76.7497 91.7655C76.7497 99.6294 78.0139 109.471 76.7497 122.886C75.4855 136.301 76.7497 159.498 76.7497 159.498H43.7985C43.7985 159.498 45.2908 97.0411 43.7985 91.7655C42.3063 86.4899 38.4282 83.5496 39.2213 78.4935C39.2213 78.4935 41.5578 73.9442 43.7985 71.6287Z" fill="white"/>
-        <path d="M43.7985 71.6287C46.0393 69.3132 70.0396 60.6485 76.7497 71.6287C80.8503 78.3388 76.7497 83.9016 76.7497 91.7655C76.7497 99.6294 78.0139 109.471 76.7497 122.886C75.4855 136.301 76.7497 159.498 76.7497 159.498H43.7985C43.7985 159.498 45.2908 97.0411 43.7985 91.7655C42.3063 86.4899 38.4282 83.5496 39.2213 78.4935C39.2213 78.4935 41.5578 73.9442 43.7985 71.6287Z" fill="#FDF8EF"/>
-        <path d="M24.5769 148.515H96.8864L93.7563 161.329H28.5626L24.5769 148.515Z" fill="#DF2C2C"/>
+        <path d="M43.7985 71.6287C46.0393 69.3132 70.0396 60.6485 76.7497 71.6287C80.8503 78.3388 76.7497 83.9016 76.7497 91.7655C76.7497 99.6294 78.0139 109.471 76.7497 122.886C75.4855 136.301 76.7497 159.498 76.7497 159.498H43.7985C43.7985 159.498 45.2908 97.0411 43.7985 91.7655C42.3063 86.4899 38.4282 83.5496 39.2213 78.4935C39.2213 78.4935 41.5578 73.9442 43.7985 71.6287Z" fill={c.body}/>
+        <path d="M43.7985 71.6287C46.0393 69.3132 70.0396 60.6485 76.7497 71.6287C80.8503 78.3388 76.7497 83.9016 76.7497 91.7655C76.7497 99.6294 78.0139 109.471 76.7497 122.886C75.4855 136.301 76.7497 159.498 76.7497 159.498H43.7985C43.7985 159.498 45.2908 97.0411 43.7985 91.7655C42.3063 86.4899 38.4282 83.5496 39.2213 78.4935C39.2213 78.4935 41.5578 73.9442 43.7985 71.6287Z" fill={c.body}/>
+        <path d="M24.5769 148.515H96.8864L93.7563 161.329H28.5626L24.5769 148.515Z" fill={c.accent}/>
         <rect x="57.5276" y="63.3909" width="2.74593" height="5.49186" fill="#786B6B"/>
       </svg>
     </div>
   )
 }
 
-function PlacedClock({ w }) {
+function PlacedClock({ w, color }) {
   const sw = Number.isFinite(w) ? w : 74
+  const c = getDecorColor(color)
   const [time, setTime] = useState(() => new Date())
   useEffect(() => {
     const id = setInterval(() => setTime(new Date()), 1000)
@@ -124,21 +130,21 @@ function PlacedClock({ w }) {
         {/* Left bell */}
         <rect x="29.5527" y="31.6865" width="5" height="6" transform="rotate(-30 29.5527 31.6865)" fill="#D7D7D7"/>
         <path d="M17.2529 10.383C16.5626 9.18723 16.9723 7.65825 18.168 6.9679C19.3637 6.27754 20.8927 6.68723 21.5831 7.88296L24.2445 12.4928L19.9144 14.9928L17.2529 10.383Z" fill="#D7D7D7"/>
-        <path d="M6.5 35.7583C2.91015 29.5405 5.04053 21.5898 11.2583 18L31.1769 6.49999C37.3947 2.91014 45.3454 5.04052 48.9352 11.2583L53.4352 19.0526L11 43.5526L6.5 35.7583Z" fill="#DF2C2C"/>
-        <path d="M9.09815 34.2583C6.33672 29.4754 7.97547 23.3594 12.7584 20.598L32.677 9.09802C37.4599 6.33659 43.5758 7.97535 46.3372 12.7583L50.8372 20.5525L13.5982 42.0525L9.09815 34.2583Z" fill="#C72A2A"/>
+        <path d="M6.5 35.7583C2.91015 29.5405 5.04053 21.5898 11.2583 18L31.1769 6.49999C37.3947 2.91014 45.3454 5.04052 48.9352 11.2583L53.4352 19.0526L11 43.5526L6.5 35.7583Z" fill={c.body}/>
+        <path d="M9.09815 34.2583C6.33672 29.4754 7.97547 23.3594 12.7584 20.598L32.677 9.09802C37.4599 6.33659 43.5758 7.97535 46.3372 12.7583L50.8372 20.5525L13.5982 42.0525L9.09815 34.2583Z" fill={c.accent}/>
         {/* Right bell */}
         <rect width="5" height="6" transform="matrix(-0.866025 -0.5 -0.5 0.866025 98.8826 31.6865)" fill="#D7D7D7"/>
         <path d="M111.182 10.383C111.873 9.18723 111.463 7.65825 110.267 6.9679C109.072 6.27754 107.543 6.68723 106.852 7.88296L104.191 12.4928L108.521 14.9928L111.182 10.383Z" fill="#D7D7D7"/>
-        <path d="M121.935 35.7583C125.525 29.5405 123.395 21.5898 117.177 18L97.2584 6.49999C91.0406 2.91014 83.0899 5.04052 79.5001 11.2583L75.0001 19.0526L117.435 43.5526L121.935 35.7583Z" fill="#DF2C2C"/>
-        <path d="M119.337 34.2583C122.099 29.4754 120.46 23.3594 115.677 20.598L95.7583 9.09802C90.9754 6.33659 84.8595 7.97535 82.0981 12.7583L77.5981 20.5525L114.837 42.0525L119.337 34.2583Z" fill="#C72A2A"/>
+        <path d="M121.935 35.7583C125.525 29.5405 123.395 21.5898 117.177 18L97.2584 6.49999C91.0406 2.91014 83.0899 5.04052 79.5001 11.2583L75.0001 19.0526L117.435 43.5526L121.935 35.7583Z" fill={c.body}/>
+        <path d="M119.337 34.2583C122.099 29.4754 120.46 23.3594 115.677 20.598L95.7583 9.09802C90.9754 6.33659 84.8595 7.97535 82.0981 12.7583L77.5981 20.5525L114.837 42.0525L119.337 34.2583Z" fill={c.accent}/>
         {/* Legs */}
         <path d="M33.837 133.881C34.3807 133.297 34.6521 132.536 34.5659 131.745C34.4811 130.954 34.0456 130.198 33.381 129.663C32.7164 129.128 31.8846 128.864 31.0943 128.95C30.3025 129.035 29.6171 129.463 29.163 130.119C28.9123 130.48 28.6617 130.841 28.411 131.203C23.8992 137.705 19.3874 144.208 14.8756 150.711C14.6249 151.072 14.3743 151.433 14.1236 151.795C13.965 152.024 13.904 152.317 13.9449 152.602C13.9863 152.887 14.1263 153.142 14.3431 153.316C14.5599 153.491 14.8383 153.573 15.1261 153.552C15.4134 153.532 15.6865 153.409 15.8764 153.205C16.1757 152.883 16.4751 152.561 16.7744 152.239C22.1626 146.442 27.5508 140.645 32.939 134.847C33.2383 134.525 33.5377 134.203 33.837 133.881Z" fill="#D7D7D7"/>
         <circle cx="15" cy="153" r="3" fill="#D7D7D7"/>
         <path d="M90.663 133.881C90.1193 133.297 89.8479 132.536 89.9341 131.745C90.0189 130.954 90.4544 130.198 91.119 129.663C91.7836 129.128 92.6154 128.864 93.4057 128.95C94.1975 129.035 94.8829 129.463 95.337 130.119C95.5877 130.48 95.8383 130.841 96.089 131.203C100.601 137.705 105.113 144.208 109.624 150.711C109.875 151.072 110.126 151.433 110.376 151.795C110.535 152.024 110.596 152.317 110.555 152.602C110.514 152.887 110.374 153.142 110.157 153.316C109.94 153.491 109.662 153.573 109.374 153.552C109.087 153.532 108.813 153.409 108.624 153.205C108.324 152.883 108.025 152.561 107.726 152.239C102.337 146.442 96.9492 140.645 91.561 134.847C91.2617 134.525 90.9623 134.203 90.663 133.881Z" fill="#D7D7D7"/>
         <circle cx="3" cy="3" r="3" transform="matrix(-1 0 0 1 112.5 150)" fill="#D7D7D7"/>
         {/* Clock body */}
-        <circle cx="64" cy="85" r="59" fill="#DF2C2C"/>
-        <circle cx="64" cy="85" r="55" fill="#C72A2A"/>
+        <circle cx="64" cy="85" r="59" fill={c.body}/>
+        <circle cx="64" cy="85" r="55" fill={c.accent}/>
         <circle cx="64" cy="85" r="49" fill="#FDF8EF"/>
         {/* Tick marks */}
         {[0,1,2,3,4,5,6,7,8,9,10,11].map(i => {
@@ -169,7 +175,7 @@ function PlacedClock({ w }) {
 
 // ─── Edit-mode item previews ──────────────────────────────────────────────────
 
-function InventoryPreview({ type }) {
+function InventoryPreview({ type, color }) {
   const decorSize = 30
   if (type === 'vertical-book') return (
     <div style={{ width: 18, height: 52, background: '#5a3a8a', borderRadius: '3px 3px 1px 1px', boxShadow: 'inset -2px 0 4px rgba(0,0,0,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -183,11 +189,11 @@ function InventoryPreview({ type }) {
       ))}
     </div>
   )
-  if (type === 'flower')  return <div className="decor-preview-wrap picker-preview-shadow" style={{ maxWidth: 34, height: 46 }}><PlacedFlower w={decorSize} /></div>
-  if (type === 'flower2') return <div className="decor-preview-wrap picker-preview-shadow" style={{ maxWidth: 34, height: 46 }}><PlacedFlower2 w={decorSize} /></div>
-  if (type === 'coffee')  return <div className="decor-preview-wrap picker-preview-shadow" style={{ maxWidth: 34, height: 46 }}><PlacedCoffeeCup w={decorSize} /></div>
-  if (type === 'light')   return <div className="decor-preview-wrap picker-preview-shadow" style={{ maxWidth: 34, height: 46 }}><PlacedLight w={decorSize} /></div>
-  if (type === 'clock')   return <div className="decor-preview-wrap picker-preview-shadow" style={{ maxWidth: 32, height: 46 }}><PlacedClock w={decorSize - 2} /></div>
+  if (type === 'flower')  return <div className="decor-preview-wrap picker-preview-shadow" style={{ maxWidth: 34, height: 46 }}><PlacedFlower w={decorSize} color={color} /></div>
+  if (type === 'flower2') return <div className="decor-preview-wrap picker-preview-shadow" style={{ maxWidth: 34, height: 46 }}><PlacedFlower2 w={decorSize} color={color} /></div>
+  if (type === 'coffee')  return <div className="decor-preview-wrap picker-preview-shadow" style={{ maxWidth: 34, height: 46 }}><PlacedCoffeeCup w={decorSize} color={color} /></div>
+  if (type === 'light')   return <div className="decor-preview-wrap picker-preview-shadow" style={{ maxWidth: 34, height: 46 }}><PlacedLight w={decorSize} color={color} /></div>
+  if (type === 'clock')   return <div className="decor-preview-wrap picker-preview-shadow" style={{ maxWidth: 32, height: 46 }}><PlacedClock w={decorSize - 2} color={color} /></div>
   return null
 }
 
