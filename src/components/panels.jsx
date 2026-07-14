@@ -714,6 +714,14 @@ function TomaAppearancePreview({
     const swap = { from: hatSwapFrom, to: hatSwapTo, fromColor: hatSwapFromColor, toColor: hatSwapToColor }
     setActiveHatSwap(swap)
     let start = null
+    let finished = false
+    const finish = (commit) => {
+      if (finished) return
+      finished = true
+      setHatSwapP(0)
+      setActiveHatSwap(null)
+      if (commit) onHatSwapComplete?.(swap.to, swap.toColor)
+    }
     const duration = SWAP_DURATION_MS
     const tick = (now) => {
       if (start === null) start = now
@@ -722,15 +730,18 @@ function TomaAppearancePreview({
       if (t < 1) {
         hatSwapAnimRef.current = requestAnimationFrame(tick)
       } else {
-        setHatSwapP(0)
-        setActiveHatSwap(null)
-        onHatSwapComplete?.(swap.to, swap.toColor)
+        finish(true)
       }
     }
     if (hatSwapAnimRef.current) cancelAnimationFrame(hatSwapAnimRef.current)
     setHatSwapP(0.001)
     hatSwapAnimRef.current = requestAnimationFrame(tick)
-    return () => { if (hatSwapAnimRef.current) cancelAnimationFrame(hatSwapAnimRef.current) }
+    return () => {
+      if (hatSwapAnimRef.current) cancelAnimationFrame(hatSwapAnimRef.current)
+      // Clear residual anim so we don't reopen mid-swipe; don't commit swap.to —
+      // the user may have picked a different look before this animation finished.
+      finish(false)
+    }
   }, [hatSwapGen, hatSwapFrom, hatSwapTo, hatSwapFromColor, hatSwapToColor, onHatSwapComplete])
 
   useEffect(() => {
@@ -738,6 +749,14 @@ function TomaAppearancePreview({
     const swap = { from: accessorySwapFrom, to: accessorySwapTo, fromColor: accessorySwapFromColor, toColor: accessorySwapToColor }
     setActiveAccessorySwap(swap)
     let start = null
+    let finished = false
+    const finish = (commit) => {
+      if (finished) return
+      finished = true
+      setAccessorySwapP(0)
+      setActiveAccessorySwap(null)
+      if (commit) onAccessorySwapComplete?.(swap.to, swap.toColor)
+    }
     const duration = SWAP_DURATION_MS
     const tick = (now) => {
       if (start === null) start = now
@@ -746,15 +765,16 @@ function TomaAppearancePreview({
       if (t < 1) {
         accessorySwapAnimRef.current = requestAnimationFrame(tick)
       } else {
-        setAccessorySwapP(0)
-        setActiveAccessorySwap(null)
-        onAccessorySwapComplete?.(swap.to, swap.toColor)
+        finish(true)
       }
     }
     if (accessorySwapAnimRef.current) cancelAnimationFrame(accessorySwapAnimRef.current)
     setAccessorySwapP(0.001)
     accessorySwapAnimRef.current = requestAnimationFrame(tick)
-    return () => { if (accessorySwapAnimRef.current) cancelAnimationFrame(accessorySwapAnimRef.current) }
+    return () => {
+      if (accessorySwapAnimRef.current) cancelAnimationFrame(accessorySwapAnimRef.current)
+      finish(false)
+    }
   }, [accessorySwapGen, accessorySwapFrom, accessorySwapTo, accessorySwapFromColor, accessorySwapToColor, onAccessorySwapComplete])
 
   const smooth = p => p * p * (3 - 2 * p)
@@ -1217,8 +1237,8 @@ function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, eyeColor
   const [accessorySwapTo, setAccessorySwapTo] = useState('none')
   const [accessorySwapFromColor, setAccessorySwapFromColor] = useState('red')
   const [accessorySwapToColor, setAccessorySwapToColor] = useState('red')
-  const [previewHat, setPreviewHat] = useState(hatKey)
-  const [previewAccessory, setPreviewAccessory] = useState(accessoryKey)
+  // Remount the cave preview each open so no mid-anim residual can desync from saved look.
+  const [previewEpoch, setPreviewEpoch] = useState(0)
   const colorReadyRef = useRef(false)
   const hatReadyRef = useRef(false)
   const hatColorReadyRef = useRef(false)
@@ -1230,21 +1250,25 @@ function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, eyeColor
   const visualHatColorRef = useRef(hatColorKey)
   const visualAccessoryRef = useRef(accessoryKey)
   const visualAccessoryColorRef = useRef(accessoryColorKey)
+  const wasOpenRef = useRef(false)
 
   const handleHatSwapComplete = useCallback((hat, color) => {
     visualHatRef.current = hat
     visualHatColorRef.current = color
-    setPreviewHat(hat)
   }, [])
 
   const handleAccessorySwapComplete = useCallback((accessory, color) => {
     visualAccessoryRef.current = accessory
     visualAccessoryColorRef.current = color
-    setPreviewAccessory(accessory)
   }, [])
 
   useLayoutEffect(() => {
-    if (!isOpen) return
+    if (!isOpen) {
+      wasOpenRef.current = false
+      return
+    }
+    const justOpened = !wasOpenRef.current
+    wasOpenRef.current = true
     setDraftColor(colorKey)
     setDraftHat(hatKey)
     setDraftHatColor(hatColorKey)
@@ -1252,7 +1276,7 @@ function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, eyeColor
     setDraftEyeShape(eyeShapeKey)
     setDraftAccessory(accessoryKey)
     setDraftAccessoryColor(accessoryColorKey)
-    setActiveTab('body')
+    if (justOpened) setActiveTab('body')
     colorReadyRef.current = false
     hatReadyRef.current = false
     hatColorReadyRef.current = false
@@ -1264,8 +1288,6 @@ function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, eyeColor
     visualHatColorRef.current = hatColorKey
     visualAccessoryRef.current = accessoryKey
     visualAccessoryColorRef.current = accessoryColorKey
-    setPreviewHat(hatKey)
-    setPreviewAccessory(accessoryKey)
     setShakeGen(0)
     setMouthReactGen(0)
     setHatSwapGen(0)
@@ -1278,6 +1300,7 @@ function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, eyeColor
     setAccessorySwapTo(accessoryKey)
     setAccessorySwapFromColor(accessoryColorKey)
     setAccessorySwapToColor(accessoryColorKey)
+    if (justOpened) setPreviewEpoch(e => e + 1)
   }, [isOpen, colorKey, hatKey, hatColorKey, eyeColorKey, eyeShapeKey, accessoryKey, accessoryColorKey])
 
   useEffect(() => {
@@ -1356,6 +1379,11 @@ function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, eyeColor
   }, [draftAccessoryColor, isOpen])
 
   function handleDismiss() {
+    // Snap swap refs to the drafts so a mid-animation close can't leave stale visuals.
+    visualHatRef.current = draftHat
+    visualHatColorRef.current = draftHatColor
+    visualAccessoryRef.current = draftAccessory
+    visualAccessoryColorRef.current = draftAccessoryColor
     onSave(draftColor, draftHat, draftHatColor, draftEyeColor, draftEyeShape, draftAccessory, draftAccessoryColor)
     onClose()
   }
@@ -1412,9 +1440,10 @@ function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, eyeColor
           marginBottom: 20,
         }}>
           <TomaAppearancePreview
+            key={previewEpoch}
             bodyColor={preview.body}
             accentColor={preview.accent}
-            hat={previewHat}
+            hat={draftHat}
             hatColorKey={draftHatColor}
             compact={isMobile}
             clipH={isMobile ? 132 : 148}
@@ -1429,7 +1458,7 @@ function MonsterCustomizeModal({ isOpen, colorKey, hatKey, hatColorKey, eyeColor
             hatSwapToColor={hatSwapToColor}
             eyeColorKey={draftEyeColor}
             eyeShapeKey={draftEyeShape}
-            accessory={previewAccessory}
+            accessory={draftAccessory}
             accessoryColorKey={draftAccessoryColor}
             accessorySwapGen={accessorySwapGen}
             accessorySwapFrom={accessorySwapFrom}
