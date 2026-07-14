@@ -1,11 +1,12 @@
 /** Central z-index scale — higher layers block lower ones. */
 export const Z = {
   stage: 10,
-  // Above retreating stage (book grab raises stage to `stage`) so Edit/Share stay clickable.
-  header: 50,
   fab: 40,
-  dragZone: 45,
   chrome: 48,
+  // Above stage + chrome so Edit/Share stay visible when a book opens.
+  header: 50,
+  // Above header so delete/rotate drop targets stay hittable while dragging.
+  dragZone: 52,
   dragGhost: 55,
   panel: 62,
   bookPreview: 70,

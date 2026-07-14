@@ -2204,24 +2204,27 @@ export default function App() {
         setEditDragArmVisible(true)
       }
 
-      // Touch: hover never fires, so hit-test the finger against the Rotate/Delete
-      // buttons directly (mirrors the desktop onMouseEnter/onMouseLeave semantics).
-      if (onTouchLayout) {
+      // Touch + desktop: hit-test Rotate/Delete while dragging. Desktop also uses
+      // mouseEnter/Leave, but geometric testing covers cases where hover is blocked
+      // (e.g. by a higher stacking layer) or never fires under a pressed pointer.
+      {
         const inside = r => !!r && e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom
         const rotatable = isRotatableDragType(dragType)
-        const overRotate = rotatable && inside(rotateBtnRef.current?.getBoundingClientRect())
-        // Toggle once on entry; the desktop 380ms hover-delay is skipped — the bar sits at
-        // the bottom and is entered deliberately, the 700ms cooldown stops repeat toggles.
-        if (overRotate && !wasOverRotateRef.current && Date.now() >= rotateCooldownUntil.current) {
-          dragRotatedRef.current = !dragRotatedRef.current
-          setDragRotated(dragRotatedRef.current)
-          setRotateAnimKey(k => k + 1)
-          rotateCooldownUntil.current = Date.now() + 700
-        }
-        wasOverRotateRef.current = overRotate
-        if (overRotate !== dragOverRotateRef.current) {
-          dragOverRotateRef.current = overRotate
-          setDragOverRotate(overRotate)
+        if (onTouchLayout) {
+          const overRotate = rotatable && inside(rotateBtnRef.current?.getBoundingClientRect())
+          // Toggle once on entry; the desktop 380ms hover-delay is skipped — the bar sits at
+          // the bottom and is entered deliberately, the 700ms cooldown stops repeat toggles.
+          if (overRotate && !wasOverRotateRef.current && Date.now() >= rotateCooldownUntil.current) {
+            dragRotatedRef.current = !dragRotatedRef.current
+            setDragRotated(dragRotatedRef.current)
+            setRotateAnimKey(k => k + 1)
+            rotateCooldownUntil.current = Date.now() + 700
+          }
+          wasOverRotateRef.current = overRotate
+          if (overRotate !== dragOverRotateRef.current) {
+            dragOverRotateRef.current = overRotate
+            setDragOverRotate(overRotate)
+          }
         }
         const overDelete = inside(deleteBtnRef.current?.getBoundingClientRect())
         if (overDelete !== dragOverDeleteRef.current) {
@@ -2239,9 +2242,13 @@ export default function App() {
       }, 260)
       const drag = editDraggingRef.current
       if (!drag) return
-      // Delete: mouse released on the delete button (its onMouseUp sets the ref), or on
-      // touch — where element onMouseUp never fires — finger lifted while over it
-      if (deleteConfirmedRef.current || (isMobileRef.current && dragOverDeleteRef.current)) {
+      // Delete if released over the delete zone. Prefer live hit-test + hover flag —
+      // do not wait for element mouseup (pointerup ends the drag before mouseup fires).
+      const deleteRect = deleteBtnRef.current?.getBoundingClientRect()
+      const releasedOverDelete = !!deleteRect
+        && e.clientX >= deleteRect.left && e.clientX <= deleteRect.right
+        && e.clientY >= deleteRect.top && e.clientY <= deleteRect.bottom
+      if (deleteConfirmedRef.current || dragOverDeleteRef.current || releasedOverDelete) {
         deleteConfirmedRef.current = false
         dragOverDeleteRef.current = false; setDragOverDelete(false)
         setDropTarget(null)
@@ -3404,12 +3411,12 @@ export default function App() {
                 ? { position: 'fixed', left: 0, right: 0, bottom: 0,
                     display: 'flex', flexDirection: 'row', justifyContent: 'center', gap: 20,
                     padding: '12px 16px calc(12px + env(safe-area-inset-bottom))',
-                    zIndex: 45, pointerEvents: 'none',
+                    zIndex: Z.dragZone, pointerEvents: 'none',
                     opacity: (visible || deleteVisible) ? 1 : 0, transition: 'opacity 0.2s ease' }
                 : { position: 'fixed', top: 0, bottom: 0, left: 0,
                     width: Math.max(80, stageSR.left), display: 'flex', flexDirection: 'column',
                     alignItems: 'flex-start', justifyContent: 'center', gap: 24, paddingLeft: 24,
-                    zIndex: 45, pointerEvents: 'none',
+                    zIndex: Z.dragZone, pointerEvents: 'none',
                     opacity: (visible || deleteVisible) ? 1 : 0, transition: 'opacity 0.2s ease' }}>
                 <div ref={rotateBtnRef} style={{
                     ...btnStyle(dragOverRotate, 'rotate'),
@@ -3442,9 +3449,9 @@ export default function App() {
                   <span>Rotate</span>
                 </div>
                 <div ref={deleteBtnRef} style={{ ...btnStyle(dragOverDelete, 'delete'), pointerEvents: deleteVisible ? 'auto' : 'none' }}
-                  onMouseEnter={deleteVisible ? () => { dragOverDeleteRef.current = true; setDragOverDelete(true) } : undefined}
-                  onMouseLeave={deleteVisible ? () => { dragOverDeleteRef.current = false; setDragOverDelete(false) } : undefined}
-                  onMouseUp={deleteVisible ? () => { deleteConfirmedRef.current = true } : undefined}>
+                  onPointerEnter={deleteVisible ? () => { dragOverDeleteRef.current = true; setDragOverDelete(true) } : undefined}
+                  onPointerLeave={deleteVisible ? () => { dragOverDeleteRef.current = false; setDragOverDelete(false) } : undefined}
+                  onPointerUp={deleteVisible ? () => { deleteConfirmedRef.current = true } : undefined}>
                   <div style={{
                     display: 'inline-block',
                     animation: dragOverDelete ? 'trashHover 0.42s ease-in-out infinite alternate' : 'none',
