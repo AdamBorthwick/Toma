@@ -46,15 +46,34 @@ input:-webkit-autofill:focus { -webkit-box-shadow: 0 0 0 30px white inset !impor
   0%, 90%, 100% { transform: scaleY(0); }
   94%, 96% { transform: scaleY(1); }
 }
+@keyframes blinkLidOnce {
+  0%, 100% { transform: scaleY(0); }
+  45%, 55% { transform: scaleY(1); }
+}
 .toma-eye-lid {
   transform-box: fill-box;
   transform-origin: center top;
+  transform: scaleY(0);
 }
 .toma-eye-lid--blink {
   animation: blinkLid 5s 0.2s infinite;
 }
+.toma-eye-lid--blink-once {
+  animation: blinkLidOnce 0.2s ease-in-out;
+}
 .toma-eye-lid--squint {
   animation: eyeSquint 1.8s ease-in-out;
+}
+@keyframes tomaHatWiggle {
+  0%, 100% { transform: rotate(0deg); }
+  35% { transform: rotate(-1.4deg); }
+  65% { transform: rotate(1deg); }
+}
+.toma-hat-idle {
+  transform-box: fill-box;
+  transform-origin: 50% 88%;
+  animation: tomaHatWiggle 4.6s ease-in-out infinite;
+  animation-delay: -0.55s;
 }
 @keyframes steamRise {
   0% { transform: translateY(0) scale(0.7); opacity: 0; }

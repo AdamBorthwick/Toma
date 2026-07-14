@@ -4,6 +4,7 @@ import { getShelfColors, findShelf } from '../data/shelves.jsx'
 import { IconPencil, IconClose, IconStar } from './icons.jsx'
 import { ScrollFade } from './ScrollFade.jsx'
 import { colors } from '../lib/uiTokens.js'
+import { coverNeedsCors } from '../lib/preloadCover.js'
 
 function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId, reviewsRef, isViewOnly, ownerName, viewerUserId, isMobile = false, monsterBodyColor = '#72FF5D' }) {
   // step 0 = below screen  |  step 1 = portrait risen  |  step 2 = spread open
@@ -195,6 +196,22 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
           ))}
         </div>
       ))}
+    </div>
+  )
+
+  // Description / blurb body — shared by the 3D left page, turner faces, and the flat
+  // desktop scroll overlay (3D hit-testing can't reliably wheel-scroll the flipped cover).
+  const descriptionPageContent = (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 8, minHeight: 0 }}>
+      {bodyLabel && <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', color: colors.muted }}>{bodyLabel}</div>}
+      <ScrollFade
+        axis="y"
+        fadeColor="#FDF8EF"
+        style={{ flex: 1, minHeight: 0 }}
+        scrollStyle={{ fontFamily: "'Manrope', sans-serif", fontSize: 12, lineHeight: 1.65, color: bodyText ? colors.textBody : colors.placeholder, fontStyle: bodyText ? 'normal' : 'italic' }}
+      >
+        {bodyText || 'No description provided.'}
+      </ScrollFade>
     </div>
   )
 
@@ -392,7 +409,13 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
             {/* Cover face — thumbnail if available, otherwise styled colour cover. Spine colour shows as placeholder while img loads. */}
             <div style={{ position: 'absolute', inset: 0, backfaceVisibility: 'hidden', borderRadius: '10px 4px 4px 10px', overflow: 'hidden', boxShadow: '0 22px 56px rgba(0,0,0,0.4)', background: selected.spine ?? selected.coverBg ?? '#1C1C2E' }}>
               {selected.thumbnail ? (
-                <img src={selected.thumbnail} alt="" crossOrigin={selected.thumbnail?.startsWith('http') ? 'anonymous' : undefined} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                <img
+                  src={selected.thumbnail}
+                  alt=""
+                  crossOrigin={coverNeedsCors(selected.thumbnail) ? 'anonymous' : undefined}
+                  decoding="async"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                />
               ) : (
                 <div style={{ width: '100%', height: '100%', background: selected.coverBg ?? selected.spine ?? '#1C1C2E', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '30px 24px', textAlign: 'center' }}>
                   <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: '2px', textTransform: 'uppercase', color: selected.coverInk ?? selected.ink ?? '#fff', opacity: 0.8 }}>{selected.author}</div>
@@ -435,16 +458,7 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
                   </button>
                 )}
               </>}
-              {displayPage === 2 && <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {bodyLabel && <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', color: colors.muted }}>{bodyLabel}</div>}
-                <ScrollFade
-                  axis="y"
-                  style={{ flex: 1, minHeight: 0 }}
-                  scrollStyle={{ fontFamily: "'Manrope', sans-serif", fontSize: 12, lineHeight: 1.65, color: bodyText ? colors.textBody : colors.placeholder, fontStyle: bodyText ? 'normal' : 'italic' }}
-                >
-                  {bodyText || 'No description provided.'}
-                </ScrollFade>
-              </div>}
+              {displayPage === 2 && descriptionPageContent}
             </div>
           </div>
 
@@ -489,16 +503,7 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
                     {yearGenre ? <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: 13, color: '#606078' }}>{yearGenre}</div> : null}
                     {shelfLabel ? <div style={{ fontFamily: "'Manrope', sans-serif", fontStyle: 'italic', fontSize: 13, color: '#8888A0', marginTop: 4 }}>From the {shelfLabel} shelf</div> : null}
                   </>}
-                  {backPage === 2 && <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {bodyLabel && <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', color: colors.muted }}>{bodyLabel}</div>}
-                    <ScrollFade
-                      axis="y"
-                      style={{ flex: 1, minHeight: 0 }}
-                      scrollStyle={{ fontFamily: "'Manrope', sans-serif", fontSize: 12, lineHeight: 1.65, color: bodyText ? colors.textBody : colors.placeholder, fontStyle: bodyText ? 'normal' : 'italic' }}
-                    >
-                      {bodyText || 'No description provided.'}
-                    </ScrollFade>
-                  </div>}
+                  {backPage === 2 && descriptionPageContent}
                 </div>
               </div>
             )
@@ -587,12 +592,13 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
           </svg>
 
           {/* Left click zone — previous page (bottom strip only, clears content area). Desktop only —
-              on mobile the full-width single page owns these areas; flipping uses the arrow buttons. */}
+              on mobile the full-width single page owns these areas; flipping uses the arrow buttons.
+              zIndex 27 sits above the description scroll overlay (26) so page-back still works. */}
           <div
             onMouseEnter={() => setHoverArea('left')}
             onMouseLeave={() => setHoverArea(null)}
             onClick={e => { e.stopPropagation(); if (overlayPage > 0 && !turnerVisible) goToPage(overlayPage - 1) }}
-            style={{ position: 'absolute', left: 0, bottom: 0, width: '50%', height: '26%', zIndex: 25, cursor: overlayPage > 0 && !turnerVisible ? 'pointer' : 'default', pointerEvents: !isMobile && overlayPage > 0 ? 'auto' : 'none' }}
+            style={{ position: 'absolute', left: 0, bottom: 0, width: '50%', height: '26%', zIndex: 27, cursor: overlayPage > 0 && !turnerVisible ? 'pointer' : 'default', pointerEvents: !isMobile && overlayPage > 0 ? 'auto' : 'none' }}
           />
 
           {/* Right click zone — next page (bottom strip only). Desktop only. */}
@@ -600,7 +606,7 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
             onMouseEnter={() => setHoverArea('right')}
             onMouseLeave={() => setHoverArea(null)}
             onClick={e => { e.stopPropagation(); if (overlayPage < MAX_PAGE && !turnerVisible) goToPage(overlayPage + 1) }}
-            style={{ position: 'absolute', right: 0, bottom: 0, width: '50%', height: '40%', zIndex: 25, pointerEvents: !isMobile && overlayPage < MAX_PAGE && !turnerVisible && !(overlayPage === 1 && reviewMode === 'edit') ? 'auto' : 'none', cursor: overlayPage < MAX_PAGE && !turnerVisible ? 'pointer' : 'default' }}
+            style={{ position: 'absolute', right: 0, bottom: 0, width: '50%', height: '40%', zIndex: 27, pointerEvents: !isMobile && overlayPage < MAX_PAGE && !turnerVisible && !(overlayPage === 1 && reviewMode === 'edit') ? 'auto' : 'none', cursor: overlayPage < MAX_PAGE && !turnerVisible ? 'pointer' : 'default' }}
           />
 
           {/* Arrow indicators — desktop: hover-revealed hints; mobile: always-visible tap buttons */}
@@ -618,17 +624,42 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
           {/* Interactive review panel — hidden during any turner animation; single source via reviewPageContent.
                zIndex:2 during initial book-open (behind cover), 26 once animation completes. */}
           {!isMobile && displayPage === 1 && bookOpen && !turnerVisible && (
-            <div style={{
+            <div
+              onWheel={e => e.stopPropagation()}
+              style={{
               position: 'absolute', right: 0, top: 0, width: '50%', height: '100%',
               zIndex: bookAnimDone ? 26 : 2,
               background: '#FDF8EF',
               borderRadius: '0 10px 10px 0',
               boxShadow: 'inset 14px 0 22px -12px rgba(0,0,0,0.08)',
               padding: '24px', display: 'flex', flexDirection: 'column', gap: 10, cursor: 'default',
+              // View mode: events pass through to the static right page + click zone.
+              // Edit mode: capture so stars/textarea work and page-turn is blocked.
               pointerEvents: reviewMode === 'edit' ? 'auto' : 'none',
             }}>
 
               {reviewPageContent(!isViewOnly)}
+            </div>
+          )}
+
+          {/* Flat left description panel — the open cover is rotateY(-158deg), so wheel/scroll
+              hit-testing misses the 3D left face. This untransformed overlay owns scrolling. */}
+          {!isMobile && displayPage === 2 && bookOpen && !turnerVisible && (
+            <div
+              onWheel={e => e.stopPropagation()}
+              style={{
+                position: 'absolute', left: 0, top: 0, width: '50%', height: '100%',
+                zIndex: bookAnimDone ? 26 : 2,
+                background: '#FDF8EF',
+                borderRadius: '10px 0 0 10px',
+                boxShadow: 'inset -14px 0 22px -12px rgba(0,0,0,0.08)',
+                padding: '24px',
+                display: 'flex', flexDirection: 'column', gap: 8, cursor: 'default',
+                pointerEvents: 'auto',
+                minHeight: 0,
+              }}
+            >
+              {descriptionPageContent}
             </div>
           )}
         </div>

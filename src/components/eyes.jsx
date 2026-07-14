@@ -92,6 +92,7 @@ function MonsterEyes({
   irisOff = { x: 0, y: 0 },
   maskIdPrefix = 'toma-eye',
   blinkAnim = 'none',
+  blinkPulse = 0,
   bodyColor = '#72FF5D',
 }) {
   const spec = getEyeShapeSpec(eyeShapeKey)
@@ -100,7 +101,11 @@ function MonsterEyes({
   const maskR = `${maskIdPrefix}-r`
   const ox = irisOff.x * (325 / 226)
   const oy = irisOff.y * (331 / 230)
-  const blinkClass = blinkAnim === 'squint' ? 'toma-eye-lid--squint' : blinkAnim === 'blink' ? 'toma-eye-lid--blink' : ''
+  const blinkClass = blinkAnim === 'squint'
+    ? 'toma-eye-lid--squint'
+    : blinkAnim === 'blink'
+      ? 'toma-eye-lid--blink-once'
+      : ''
 
   return (
     <>
@@ -122,10 +127,10 @@ function MonsterEyes({
 
       {blinkAnim !== 'none' && (
         <>
-          <g className={`toma-eye-lid ${blinkClass}`}>
+          <g key={`l-${blinkPulse}`} className={`toma-eye-lid ${blinkClass}`}>
             <rect x={spec.leftLid.x} y={spec.leftLid.y} width={spec.leftLid.w} height={spec.leftLid.h} fill={bodyColor} />
           </g>
-          <g className={`toma-eye-lid ${blinkClass}`}>
+          <g key={`r-${blinkPulse}`} className={`toma-eye-lid ${blinkClass}`}>
             <rect x={spec.rightLid.x} y={spec.rightLid.y} width={spec.rightLid.w} height={spec.rightLid.h} fill={bodyColor} />
           </g>
         </>

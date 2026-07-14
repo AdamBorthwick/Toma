@@ -80,6 +80,12 @@ const HAND_Y_FROM_ELBOW = 24
 const GRIP_HAND_SHIFT = -32
 // Positive = finger aims right of the cursor so the palm/hand reads to the left of it.
 const HAND_CURSOR_BIAS_X = 28
+// Smaller bias used while holding an edit-mode drag: the cursor-follow bias above is
+// tuned for pointing at things while browsing, where the palm shouldn't cover the target.
+// While actually dragging, the dragged ghost is centered on the cursor, so the same 28px
+// bias puts the fingertip past the ghost's edge with no overlap. A smaller bias brings the
+// fingertip just inside the ghost so the hand reads as gripping it, not pointing past it.
+const DRAG_HAND_CURSOR_BIAS_X = 14
 
 // Stage target (tx, ty) → finger tip. gripExtend 0→1 applies the edit/grab hand shift.
 function fingerTipOffsetFromTarget(gripExtend = 0) {
@@ -89,9 +95,9 @@ function fingerTipOffsetFromTarget(gripExtend = 0) {
   }
 }
 
-function targetFromFingerTip(tipX, tipY, gripExtend = 0) {
+function targetFromFingerTip(tipX, tipY, gripExtend = 0, bias = HAND_CURSOR_BIAS_X) {
   const off = fingerTipOffsetFromTarget(gripExtend)
-  return { x: tipX - off.x + HAND_CURSOR_BIAS_X, y: tipY }
+  return { x: tipX - off.x + bias, y: tipY }
 }
 
 function computeArm(target, retractMode = 0, returnProgress = 0, maxElbowY = 9999, minTx = 270, maxTx = 786) {
@@ -137,4 +143,4 @@ function titleT(title) {
 }
 
 
-export { GHOST_LIFT, setGhostPos, slotsOverlap, freeZoneAt, findFreeZone, computeArm, computeFingerPaths, titleT, DEFAULT_ARM_TARGET, targetFromFingerTip, fingerTipOffsetFromTarget, INDEX_FINGER_TIP_LOCAL, GRIP_HAND_SHIFT }
+export { GHOST_LIFT, setGhostPos, slotsOverlap, freeZoneAt, findFreeZone, computeArm, computeFingerPaths, titleT, DEFAULT_ARM_TARGET, targetFromFingerTip, fingerTipOffsetFromTarget, INDEX_FINGER_TIP_LOCAL, GRIP_HAND_SHIFT, DRAG_HAND_CURSOR_BIAS_X }

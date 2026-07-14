@@ -6,12 +6,13 @@ import { IconPencil } from './icons.jsx'
 import { PlacedFlower, PlacedFlower2, PlacedCoffeeCup, PlacedLight, PlacedClock } from './decor.jsx'
 import { VerticalBook, HorizontalBook } from './scene.jsx'
 import { SpineLabel } from './SpineLabel.jsx'
+import { preloadCover } from '../lib/preloadCover.js'
 
 function PlacedVerticalBook({ book, w, h, active, grabbed, onEnter, onLeave, onClick }) {
   const spineDims = getSpineDims({ axis: 'vertical', title: book?.title, slotW: w, shelfH: h })
   return (
     <div
-      onMouseEnter={() => { if (book?.thumbnail) { const img = new Image(); img.src = book.thumbnail }; onEnter?.() }}
+      onMouseEnter={() => { if (book?.thumbnail) preloadCover(book.thumbnail); onEnter?.() }}
       onMouseLeave={onLeave}
       onClick={onClick}
       title={book?.title}
@@ -51,7 +52,7 @@ function PlacedHorizontalStack({ books, w, onBookClick, onBookMouseDown, editMod
         return (
           <div
             key={i}
-            onMouseEnter={() => setHoveredIdx(i)}
+            onMouseEnter={() => { if (b?.thumbnail) preloadCover(b.thumbnail); setHoveredIdx(i) }}
             onMouseLeave={() => setHoveredIdx(null)}
             onPointerDown={onBookMouseDown ? e => { e.stopPropagation(); onBookMouseDown(i, e) } : undefined}
             onClick={onBookClick ? e => { e.stopPropagation(); onBookClick(b, e) } : undefined}

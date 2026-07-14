@@ -216,8 +216,13 @@ function PoofSmoke({ top, h }) {
 function TomaHead({ irisOff, style, onMouseEnter, bodyColor = '#72FF5D', accentColor = '#3BD424', hat = 'none', hatColorKey = 'red', eyeColorKey = 'dark', eyeShapeKey = 'round', accessory = 'none', accessoryColorKey = 'red', mouthReactGen = 0, blinkAnim = 'none' }) {
   const uid = useId().replace(/:/g, '')
   const maskIdPrefix = `toma-eye-${uid}`
-  const [cornerLift, setCornerLift] = useState(0)
+  const [reactLift, setReactLift] = useState(0)
+  const [idleLift, setIdleLift] = useState(0)
+  const [blinkPulse, setBlinkPulse] = useState(0)
   const mouthAnimRef = useRef(null)
+  const idleBreathRef = useRef(null)
+  const blinkTimersRef = useRef([])
+  const idleActive = blinkAnim === 'blink'
 
   useEffect(() => {
     if (mouthReactGen === 0) return
@@ -234,16 +239,78 @@ function TomaHead({ irisOff, style, onMouseEnter, bodyColor = '#72FF5D', accentC
     const tick = (now) => {
       if (start === null) start = now
       const t = Math.min(1, (now - start) / duration)
-      setCornerLift(mouthLiftAt(t))
+      setReactLift(mouthLiftAt(t))
       if (t < 1) mouthAnimRef.current = requestAnimationFrame(tick)
-      else setCornerLift(0)
+      else setReactLift(0)
     }
     if (mouthAnimRef.current) cancelAnimationFrame(mouthAnimRef.current)
     mouthAnimRef.current = requestAnimationFrame(tick)
     return () => { if (mouthAnimRef.current) cancelAnimationFrame(mouthAnimRef.current) }
   }, [mouthReactGen])
 
-  const l = cornerLift
+  useEffect(() => {
+    if (!idleActive) {
+      setIdleLift(0)
+      return
+    }
+    if (mouthReactGen !== 0) {
+      setIdleLift(0)
+      return
+    }
+    let start = null
+    const period = 7200
+    const tick = (now) => {
+      if (!start) start = now
+      const t = ((now - start) % period) / period
+      const wave = Math.sin(t * Math.PI * 2)
+      setIdleLift(((wave + 1) / 2) * 0.1)
+      idleBreathRef.current = requestAnimationFrame(tick)
+    }
+    idleBreathRef.current = requestAnimationFrame(tick)
+    return () => {
+      cancelAnimationFrame(idleBreathRef.current)
+      setIdleLift(0)
+    }
+  }, [idleActive, mouthReactGen])
+
+  useEffect(() => {
+    if (!idleActive) return
+    let cancelled = false
+    const timers = blinkTimersRef.current
+    const clearTimers = () => {
+      timers.forEach(clearTimeout)
+      timers.length = 0
+    }
+    const pulse = () => setBlinkPulse(n => n + 1)
+    const runBlink = (done) => {
+      pulse()
+      timers.push(setTimeout(done, 200))
+    }
+    const schedule = () => {
+      const delay = 3500 + Math.random() * 4000
+      timers.push(setTimeout(() => {
+        if (cancelled) return
+        runBlink(() => {
+          if (cancelled) return
+          if (Math.random() < 0.15) {
+            timers.push(setTimeout(() => {
+              if (cancelled) return
+              runBlink(schedule)
+            }, 130))
+          } else {
+            schedule()
+          }
+        })
+      }, delay))
+    }
+    timers.push(setTimeout(schedule, 2000 + Math.random() * 1500))
+    return () => {
+      cancelled = true
+      clearTimers()
+    }
+  }, [idleActive])
+
+  const l = reactLift > 0 ? reactLift : idleLift
   const mouthApex = { x: 161.433, y: 123.285 }
   const mouthLeft = { x: 140.381, y: 142.507 }
   const mouthRight = { x: 182.485, y: 142.507 }
@@ -279,6 +346,7 @@ function TomaHead({ irisOff, style, onMouseEnter, bodyColor = '#72FF5D', accentC
         irisOff={irisOff}
         maskIdPrefix={maskIdPrefix}
         blinkAnim={blinkAnim}
+        blinkPulse={blinkPulse}
         bodyColor={bodyColor}
       />
       <rect x="133.881" y="99.7687" width="54.0033" height="25.6287" rx="12.8143" fill={accentColor} />
@@ -291,7 +359,11 @@ function TomaHead({ irisOff, style, onMouseEnter, bodyColor = '#72FF5D', accentC
         fill="none"
       />
       <MonsterAccessoryGraphic accessory={accessory} accessoryColorKey={accessoryColorKey} />
-      <MonsterHatGraphic hat={hat} hatColorKey={hatColorKey} />
+      {hat !== 'none' ? (
+        <g className={idleActive ? 'toma-hat-idle' : undefined}>
+          <MonsterHatGraphic hat={hat} hatColorKey={hatColorKey} />
+        </g>
+      ) : null}
     </svg>
   )
 }

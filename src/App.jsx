@@ -4,10 +4,11 @@ import { resolveUserId, loadShelfByUserId, loadShelfByShareId, loadReviews, pers
 import { DialogBackdrop, DialogCard, DialogTitle, DialogDescription, DialogActions, FieldLabel, TextInput, Button } from './components/ui/index.js'
 import { SLOT_W, NUM_SLOTS, SHELF_H, BOOKCASE_LEFT, BOOKCASE_WIDTH, isRotatableDragType, PLATE_EM_BASE, SURFACE_LABEL_FONT_EM } from './lib/layout.js'
 import { MOBILE_ZOOMED_IN_MONSTER_BIAS } from './lib/mobileZoom.js'
-import { setGhostPos, slotsOverlap, findFreeZone, computeArm, computeFingerPaths, titleT, DEFAULT_ARM_TARGET, targetFromFingerTip } from './lib/geometry.js'
+import { setGhostPos, slotsOverlap, findFreeZone, computeArm, computeFingerPaths, titleT, DEFAULT_ARM_TARGET, targetFromFingerTip, DRAG_HAND_CURSOR_BIAS_X } from './lib/geometry.js'
 import { computeMobileScale, computeStageScale } from './lib/scale.js'
 import { mobileShelfScrollBounds } from './lib/scroll.js'
 import { fetchDefaultShelfData } from './lib/openLibrary.js'
+import { preloadCover, awaitCover, preloadCoversFromShelfContents, preloadCoversFromInventory } from './lib/preloadCover.js'
 import { SHELVES, getShelfColors, reconstructShelf } from './data/shelves.jsx'
 import { getMonsterColors } from './data/monster.jsx'
 import { IconTrash, IconRotate } from './components/icons.jsx'
@@ -326,7 +327,7 @@ export default function App() {
     }
   }
 
-  function clientToStage(clientX, clientY, aimFinger = false, gripExtend = 0) {
+  function clientToStage(clientX, clientY, aimFinger = false, gripExtend = 0, bias = undefined) {
     const m = stageMetrics()
     if (!m) return null
 
@@ -343,7 +344,7 @@ export default function App() {
     let y = (clientY - m.top) / m.sy - bookcaseShiftRef.current
 
     if (aimFinger) {
-      const aim = targetFromFingerTip(x, y, gripExtend)
+      const aim = targetFromFingerTip(x, y, gripExtend, bias)
       x = aim.x
       y = aim.y
     }
@@ -848,28 +849,26 @@ export default function App() {
   }, [editDragging])
   useEffect(() => { if (!scaleAnimatingRef.current) scaleRef.current = scale }, [scale])
 
+  // Catalog + shelf + inventory covers: warm the browser cache as soon as data exists
+  // (not on hover/open). Uses the same CORS mode as Overlay so open doesn't re-fetch blank.
   useEffect(() => {
     SHELVES.flatMap(s => s.items).forEach(item => {
-      if (item.thumbnail) { const img = new Image(); img.src = item.thumbnail }
+      if (item.thumbnail) preloadCover(item.thumbnail)
+      if (item.type === 'stack') {
+        for (const b of item.books ?? []) {
+          if (b?.thumbnail) preloadCover(b.thumbnail)
+        }
+      }
     })
   }, [])
 
-  // Preload covers for every book on the user's shelf so the overlay shows them instantly.
   useEffect(() => {
-    const seen = new Set()
-    for (const row of shelfContents) {
-      for (const item of row) {
-        const books = item.type === 'vertical-book' ? [item.book] : (item.books ?? [])
-        for (const b of books) {
-          if (b?.thumbnail && !seen.has(b.thumbnail)) {
-            seen.add(b.thumbnail)
-            const img = new Image()
-            img.src = b.thumbnail
-          }
-        }
-      }
-    }
+    preloadCoversFromShelfContents(shelfContents)
   }, [shelfContents])
+
+  useEffect(() => {
+    preloadCoversFromInventory(inventory)
+  }, [inventory])
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 768)
@@ -1766,6 +1765,8 @@ export default function App() {
       grabPhaseRef.current = 'extending'
       setGrabPhase('extending')
       setGrabbedBook(b)
+      // Kick off cover fetch at click — arm animation (~1.5s) usually finishes it first.
+      const coverReady = awaitCover(b?.thumbnail, 2500)
       setHoveredId(null)
       cancelAnimationFrame(retractRef.current)
       cancelAnimationFrame(grabRafRef.current)
@@ -1836,10 +1837,10 @@ export default function App() {
             setRetractMode(1 - ease2)
             if (rp2 < 1) { grabRafRef.current = requestAnimationFrame(returnLoop); return }
 
-            // Arm back behind shelf — pause 200ms then open overlay
+            // Arm back behind shelf — wait for cover, then rise the overlay.
             grabPhaseRef.current = 'done'
             setGrabPhase('done')
-            setTimeout(() => {
+            const openOverlay = () => {
               grabPhaseRef.current = null
               fingerExtendRef.current = 0
               retractModeRef.current = 0
@@ -1854,7 +1855,10 @@ export default function App() {
               setSelected(b)
               setOpenPhase('closed')
               requestAnimationFrame(() => requestAnimationFrame(() => setOpenPhase('open')))
-            }, 200)
+            }
+            // Prefer cover ready before the rise; brief pause if already cached.
+            const minPause = new Promise(r => setTimeout(r, 120))
+            Promise.all([coverReady, minPause]).then(openOverlay)
           }
           grabRafRef.current = requestAnimationFrame(returnLoop)
         }
@@ -2048,7 +2052,7 @@ export default function App() {
     const placeArm = () => {
       const cx = viewportMouseRef.current?.x ?? e.clientX
       const cy = viewportMouseRef.current?.y ?? e.clientY
-      const pos = clientToStage(cx, cy, true)
+      const pos = clientToStage(cx, cy, true, 0, DRAG_HAND_CURSOR_BIAS_X)
       if (!pos) return
       snapArmTarget(pos)
       setEditDragArmVisible(true)
@@ -2193,7 +2197,7 @@ export default function App() {
       setDropTarget(found)
 
       // Drive the real Sprout arm to the finger — ghost clamping is visual only.
-      const pos = clientToStage(e.clientX, e.clientY, true, editGripExtendRef.current)
+      const pos = clientToStage(e.clientX, e.clientY, true, editGripExtendRef.current, DRAG_HAND_CURSOR_BIAS_X)
       if (pos) {
         armFollow(pos, { smooth: onTouchLayout })
         setEditDragArmVisible(true)
@@ -2410,7 +2414,7 @@ export default function App() {
     const placeArm = () => {
       const cx = viewportMouseRef.current?.x ?? e.clientX
       const cy = viewportMouseRef.current?.y ?? e.clientY
-      const pos = clientToStage(cx, cy, true, editGripExtendRef.current)
+      const pos = clientToStage(cx, cy, true, editGripExtendRef.current, DRAG_HAND_CURSOR_BIAS_X)
       if (!pos) return
       snapArmTarget(pos)
       setEditDragArmVisible(true)
@@ -2477,7 +2481,7 @@ export default function App() {
     const placeArm = () => {
       const cx = viewportMouseRef.current?.x ?? e.clientX
       const cy = viewportMouseRef.current?.y ?? e.clientY
-      const pos = clientToStage(cx, cy, true, editGripExtendRef.current)
+      const pos = clientToStage(cx, cy, true, editGripExtendRef.current, DRAG_HAND_CURSOR_BIAS_X)
       if (!pos) return
       snapArmTarget(pos)
       setEditDragArmVisible(true)
@@ -3198,7 +3202,7 @@ export default function App() {
                     transition: 'left 0.18s cubic-bezier(.4,0,.2,1)',
                   }}/>
                 </div>
-                {isEditMode ? 'Stop edit' : 'Edit mode'}
+                {isEditMode ? 'Stop editing' : 'Edit mode'}
               </button>
             )}
           </div>
