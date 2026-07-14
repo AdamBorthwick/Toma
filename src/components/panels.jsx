@@ -184,21 +184,24 @@ function SidePanelButtons({ editDragging, onBook, onDecor, onShelves, onMonster,
 
   const buildBtn = isMobile ? (
     <div style={slide(true)} data-tour-target="edit-mode-toggle">
-      {/* Edit ⇄ View mode. In edit mode the button shows the *destination* — the
-          view-mode affordance — so tapping it is a clear "go back to viewing".
-          Yellow caution-stripe stays the same in both states so the button reads as
-          the mode switcher regardless of which side of the toggle you're on. */}
+      {/* Edit ⇄ View. In edit mode the button shows the *destination* — the view
+          affordance — so tapping it is a clear "go back to viewing". Plain yellow
+          (no caution-stripe wrapper) keeps it visually simpler than the entering-edit
+          state, which still uses the diagonal-stripe treatment via btnBase's sibling
+          styles above. */}
       <button onClick={onToggleEdit} style={{
         ...btnBase,
         padding: '7px 3px',
-        background: 'linear-gradient(#2A2A2A, #2A2A2A) padding-box, repeating-linear-gradient(-45deg, #FFD700, #FFD700 7px, #1C1C1C 7px, #1C1C1C 14px) border-box',
-        border: '3px solid transparent',
-        color: '#FDF8EF',
+        background: isEditMode
+          ? '#FFD700'
+          : 'linear-gradient(#2A2A2A, #2A2A2A) padding-box, repeating-linear-gradient(-45deg, #FFD700, #FFD700 7px, #1C1C1C 7px, #1C1C1C 14px) border-box',
+        border: isEditMode ? 'none' : '3px solid transparent',
+        color: isEditMode ? '#1C1C2E' : '#FDF8EF',
       }}>
         {isEditMode
-          ? <IconEye    size={22} color="#FDF8EF" />
+          ? <IconEye    size={22} color="#1C1C2E" />
           : <IconPencil size={22} color="#FDF8EF" />}
-        <span style={{ whiteSpace: 'nowrap', fontSize: isEditMode ? 10 : 12 }}>{isEditMode ? 'View mode' : 'Edit'}</span>
+        <span style={{ whiteSpace: 'nowrap', fontSize: 12 }}>{isEditMode ? 'View' : 'Edit'}</span>
       </button>
     </div>
   ) : null
