@@ -108,6 +108,9 @@ function EditableShelfRow({ shelf, shelfIdx, items, dragging, dropTarget, innerR
               position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
               pointerEvents: 'none', opacity: dragging ? 0 : 1, transition: 'opacity .15s ease',
               fontSize: SHELF_H,
+              // Same compositor-layer promotion as ShelfLabel/ShelfPlate — smooths text
+              // scaling under the stage's CSS-zoom camera animation.
+              transform: 'translateZ(0)',
             }}>
               <span style={{
                 fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: `${SHELF_HINT_FONT_EM}em`,
@@ -395,7 +398,16 @@ function EditButton({ onClick, visible, onMouseDown }) {
 
 function ShelfLabel({ label, tabBg, tabInk, onEdit = null }) {
   return (
-    <div style={{ position: 'absolute', left: 0, top: 0, zIndex: 20, pointerEvents: 'none', display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: SHELF_H }}>
+    <div style={{
+      position: 'absolute', left: 0, top: 0, zIndex: 20, pointerEvents: 'none', display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: SHELF_H,
+      // Promote this text onto its own compositor layer. The bookcase stage scales via
+      // CSS `zoom` (needed for pointer hit-testing math elsewhere), but `zoom` re-lays-out
+      // and re-hints text on every animation frame — vector shapes glide smoothly through
+      // that, text visibly steps/pops. translateZ(0) forces the browser to rasterize this
+      // label once and let the compositor scale it, which tracks the camera zoom's easing
+      // curve smoothly instead of snapping between hinted sizes.
+      transform: 'translateZ(0)',
+    }}>
       <div style={{ background: tabBg, color: tabInk, fontFamily: "'Manrope',sans-serif", fontWeight: 600, fontSize: `${SHELF_TAB_FONT_EM}em`, padding: '5px 12px 5px 8px', borderRadius: '0 0 6px 0', boxShadow: '2px 2px 6px rgba(0,0,0,0.18)' }}>
         {label}
       </div>
@@ -425,7 +437,10 @@ function ShelfLabel({ label, tabBg, tabInk, onEdit = null }) {
 
 function ShelfPlate({ shelfName, username }) {
   return (
-    <div style={{ position: 'relative', display: 'inline-block', fontSize: PLATE_EM_BASE }}>
+    // translateZ(0): promotes the nameplate text onto its own compositor layer so it
+    // scales fluidly with the camera zoom instead of stepping through CSS zoom's
+    // per-frame text re-hinting (see the matching comment in ShelfLabel above).
+    <div style={{ position: 'relative', display: 'inline-block', fontSize: PLATE_EM_BASE, transform: 'translateZ(0)' }}>
       <div style={{
         background: '#F2EFE8',
         borderRadius: 7,
