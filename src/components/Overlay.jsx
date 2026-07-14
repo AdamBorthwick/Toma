@@ -4,6 +4,7 @@ import { getShelfColors, findShelf } from '../data/shelves.jsx'
 import { IconPencil, IconClose, IconStar } from './icons.jsx'
 import { ScrollFade } from './ScrollFade.jsx'
 import { colors } from '../lib/uiTokens.js'
+import { Z } from '../lib/zIndex.js'
 import { coverNeedsCors } from '../lib/preloadCover.js'
 
 function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId, reviewsRef, isViewOnly, ownerName, viewerUserId, isMobile = false, monsterBodyColor = '#72FF5D' }) {
@@ -312,7 +313,7 @@ function Overlay({ selected, openPhase, onClose, shelfConfigs, descCache, userId
 
   return (
     <div onClick={handleClose} style={{
-      position: 'fixed', inset: 0, zIndex: 100,
+      position: 'fixed', inset: 0, zIndex: Z.bookOverlay,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       background: step === 0 ? 'rgba(0,0,0,0)' : 'rgba(0,0,0,0.54)',
       backdropFilter: step > 0 ? 'blur(5px)' : 'blur(0px)',

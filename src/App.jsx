@@ -3,6 +3,7 @@ import { flushSync } from 'react-dom'
 import { resolveUserId, loadShelfByUserId, loadShelfByShareId, loadReviews, persistShelf, getShareId, setUsername as saveUsername, getUsername, getMonsterLook, setMonsterLook, loadInventory, addInventoryBook, addInventoryStack, addInventoryDecor, removeInventoryItem, DbError } from './db.js'
 import { DialogBackdrop, DialogCard, DialogTitle, DialogDescription, DialogActions, FieldLabel, TextInput, Button } from './components/ui/index.js'
 import { SLOT_W, NUM_SLOTS, SHELF_H, BOOKCASE_LEFT, BOOKCASE_WIDTH, isRotatableDragType, PLATE_EM_BASE, SURFACE_LABEL_FONT_EM } from './lib/layout.js'
+import { Z } from './lib/zIndex.js'
 import { MOBILE_ZOOMED_IN_MONSTER_BIAS } from './lib/mobileZoom.js'
 import { setGhostPos, slotsOverlap, findFreeZone, computeArm, computeFingerPaths, titleT, DEFAULT_ARM_TARGET, targetFromFingerTip, DRAG_HAND_CURSOR_BIAS_X } from './lib/geometry.js'
 import { computeMobileScale, computeStageScale } from './lib/scale.js'
@@ -2956,7 +2957,7 @@ export default function App() {
           WebkitTextSizeAdjust: 'none', textSizeAdjust: 'none',
           // zoom is applied imperatively via a layout effect (see scaleRef sync) so the
           // per-frame animated value survives React re-renders without a flash.
-          zIndex: retreating ? 10 : undefined,
+          zIndex: retreating ? Z.stage : undefined,
           // Edge-scroll mode: touch-action none blocks native pan; scrolling is edge-driven only.
           touchAction: isMobile ? (editDragging || mobileNoTouchScroll ? 'none' : (zoomedIn ? 'pan-x pan-y' : 'pan-y')) : 'pan-y',
           // flexShrink 0: flex items default to shrink:1, which would compress the zoomed stage
@@ -3167,7 +3168,7 @@ export default function App() {
 
       {/* header bar — desktop only; mobile owners use the footer, viewers use the view-only footer */}
       {bookcaseRevealed && !isMobile && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px 10px', zIndex: 9, pointerEvents: 'none', background: 'transparent', transform: (headerVisible && !surfacing) ? 'translateY(0)' : 'translateY(-120%)', transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)' }}>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px 10px', zIndex: Z.header, pointerEvents: 'none', background: 'transparent', transform: (headerVisible && !surfacing) ? 'translateY(0)' : 'translateY(-120%)', transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)' }}>
           <div style={{ pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: 10, alignSelf: isViewOnly ? 'flex-start' : 'center' }}>
             {isViewOnly && (
               <span style={{ color: '#FDF8EF', opacity: 0.7, fontSize: 12, fontFamily: "'Manrope',sans-serif", whiteSpace: 'nowrap' }}>
