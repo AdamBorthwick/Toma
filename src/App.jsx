@@ -1139,6 +1139,21 @@ export default function App() {
         const { shelfConfigs: cfgs, shelfContents: cnts } = reconstructShelf(shelf)
         setShelfConfigs(cfgs)
         setShelfContents(cnts)
+      } else {
+        // Kick off the default-shelf fetch now instead of waiting for onboarding submit.
+        // handleReveal() flips bookcaseRevealed as soon as the user hits Start on the
+        // title screen — independent of whether onboarding is still up — so without this,
+        // shelfConfigs stays [] and the scene behind the onboarding form renders with just
+        // the head and top board, looking broken. Not awaited: the onboarding form itself
+        // shouldn't wait on this network round-trip to appear; the shelf populates behind
+        // it whenever the fetch resolves, which in practice is almost always before the
+        // user finishes typing their name. handleOnboardingSubmit reuses this same
+        // (deterministic) result instead of re-fetching.
+        fetchDefaultShelfData().then(({ configs, contents }) => {
+          if (cancelled) return
+          setShelfConfigs(configs)
+          setShelfContents(contents)
+        }).catch(() => { /* handleOnboardingSubmit falls back to its own fetch */ })
       }
       reviewsRef.current = await loadReviews(uid)
       const uname = await getUsername(uid)
@@ -1217,7 +1232,15 @@ export default function App() {
     setUsername(displayName)
     try {
       await saveUsername(userId, displayName)
-      const { configs, contents } = await fetchDefaultShelfData()
+      // bootstrapOwner already kicked off this same (deterministic) fetch as soon as it
+      // knew this was a new user, so the scene behind the form wasn't empty while they
+      // typed. Reuse that result — re-fetching here would be a redundant network round
+      // trip and, being async, could theoretically resolve to a different result if
+      // DEFAULT_QUERIES ever changes shape mid-session. Fall back to fetching only if
+      // the preload hasn't landed yet (very fast submit) or failed.
+      const { configs, contents } = shelfConfigs.length > 0
+        ? { configs: shelfConfigs, contents: shelfContents }
+        : await fetchDefaultShelfData()
       skipAutoSaveRef.current = true
       setShelfConfigs(configs)
       setShelfContents(contents)
@@ -2638,6 +2661,15 @@ export default function App() {
   const headTop  = headIntroTop !== null ? headIntroTop
     : overlayOpenTopRow ? 200 + hatParkExtra
     : grabReturnTopRow ? 190 + hatParkExtra
+    // Any other retreating case (book open or arm returning, book was NOT in the top
+    // row) must also park at a safe, shelf-covered Y — not fall through to the
+    // cursor-tracking formula below. That formula uses computeArm's null-target
+    // fallback (DEFAULT_ARM_TARGET, y=280) whenever armTarget resets to null at the
+    // end of the grab-return animation, which resolves to topBlend=1 and headTop≈108 —
+    // ABOVE the top board, next to the nameplate, fully exposed against the cave
+    // background. That default is meant for Toma's idle "peek over the shelf" pose
+    // while just browsing, not for while a book is actually being viewed.
+    : retreating ? 200 + hatParkExtra
     : 108 * topBlend + (arm.handY - 295) * (1 - topBlend)
   const headRotate = retreating ? 0 : -5 * topBlend + 7 * (1 - topBlend)
   // Render the head directly from the arm-derived pose — no second lerp on top of the
