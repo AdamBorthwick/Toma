@@ -113,10 +113,14 @@ export default function App() {
   const _skipIntro  = _urlParams.get('skipIntro') === '1'
   const _startEdit  = _urlParams.get('edit') === '1'
   // ?tour=1 forces the guided tour to start after the shelf is revealed, bypassing the
-  // localStorage flag. Captured at mount so it survives the history.replaceState the
-  // skipIntro/edit params trigger below — otherwise re-reading URLSearchParams on the
-  // next render would find an empty query string and skip the tour.
-  const [_forceTour] = useState(() => new URLSearchParams(window.location.search).get('tour') === '1')
+  // localStorage flag. ?tour=full also shows the onboarding form first (with a preview
+  // submit that skips persistence) so the full first-run flow can be inspected.
+  // Captured at mount so it survives the history.replaceState the skipIntro/edit params
+  // trigger below — otherwise re-reading URLSearchParams on the next render would find
+  // an empty query string and skip the tour.
+  const [_tourMode] = useState(() => new URLSearchParams(window.location.search).get('tour'))
+  const _forceTour = _tourMode === '1' || _tourMode === 'full'
+  const _previewOnboarding = _tourMode === 'full'
   const [flashInventory, setFlashInventory] = useState(_startEdit)
 
   const [userId, setUserId]                 = useState(null)
@@ -185,6 +189,14 @@ export default function App() {
   const pendingZoomStartRef = useRef(null)
   const scaleAnimatingRef = useRef(false)
   const scaleAnimRafRef = useRef(null)
+  // Suppresses the very next horizontal-scroll clamp/reset. The zoom animation writes
+  // scrollLeft directly to the DOM every frame, including on its final frame — that write
+  // queues a native `scroll` event that fires asynchronously, after zoomedInRef has
+  // already flipped false (finish() runs synchronously inside the same tick). Without this
+  // guard, the onScroll handler's "not zoomed in → snap scrollLeft to 0" bail fires on that
+  // stray event and stomps the animation's carefully-computed resting position for one
+  // frame, producing a visible pan-left-then-pan-back glitch right as zoom-out completes.
+  const suppressNextScrollResetRef = useRef(false)
   const bookcaseLayerRef = useRef(null)   // the shiftable layer holding bookshelf + head + arm
   const bookcaseShiftRef = useRef(0)      // current bookcase-layer top offset (stage units)
   const stageHeightRef = useRef(0)        // rendered stage height, mirrors render-derived value
@@ -585,6 +597,13 @@ export default function App() {
       } else {
         scaleAnimRafRef.current = null
         scaleAnimatingRef.current = false
+        // The scrollLeft write above (this same frame) queues a native `scroll` event
+        // that fires asynchronously — after onDone (below) has already flipped
+        // zoomedInRef false on zoom-out. Swallow that one stray event so the scroll
+        // handler's "not zoomed in → snap to 0" bail doesn't stomp the position we
+        // just animated to. See the ref's declaration comment for the full sequence.
+        suppressNextScrollResetRef.current = true
+        requestAnimationFrame(() => { suppressNextScrollResetRef.current = false })
         // Keep the final zoom applied — React re-writes the same value on the next
         // commit. Clearing it here can paint one frame at zoom:1 (visible glitch).
         if (stageEl) stageEl.style.zoom = String(to)
@@ -943,6 +962,7 @@ export default function App() {
     }
     function onScroll() {
       if (scaleAnimatingRef.current) return
+      if (suppressNextScrollResetRef.current) { suppressNextScrollResetRef.current = false; return }
       if (!isMobile) {
         if (el.scrollLeft !== 0) el.scrollLeft = 0
         return
@@ -1231,27 +1251,27 @@ export default function App() {
     const steps = [
       {
         target: 'edit-mode-toggle',
-        title: 'Browse or Build',
-        body: 'This toggle switches between Browse (view your books) and Build (arrange, add, or remove). Tap the toggle now, or hit Next to continue.',
+        title: 'Turn on edit mode',
+        body: 'This toggle enters edit mode, where you can arrange, add, or remove books.',
         onAdvance: () => { if (!isEditModeRef.current) enterEditMode() },
       },
       {
         target: null,
         kind: 'demo',
         title: 'Move books around',
-        body: 'In Build mode you can drag any book to a new slot or a different shelf.',
+        body: 'In edit mode you can drag any book to a new slot or a different shelf.',
       },
       {
         target: 'customization',
         title: 'Add & customize',
-        body: 'Use these buttons to add books, decor, style your monster, and organize your shelves.',
+        body: 'Use these buttons to style your monster and customize your shelves.',
       },
     ]
     if (isMobile) {
       steps.push({
         target: 'zoom-btn',
         title: 'Zoom in & out',
-        body: 'Tap the magnifier to focus on one shelf and pan through it, or zoom back out to see the whole bookcase.',
+        body: 'You can use the zoom tool to get a closer look at your bookshelf.',
       })
     }
     return steps
@@ -1271,11 +1291,28 @@ export default function App() {
   const forceTourFiredRef = useRef(false)
   useEffect(() => {
     if (forceTourFiredRef.current || !_forceTour) return
-    if (!bookcaseRevealed || showTitle || showOnboarding || isViewOnly) return
+    if (!bookcaseRevealed || showTitle || isViewOnly) return
+    // ?tour=full: also show onboarding first. Wait until any existing onboarding
+    // has closed before firing again (avoid re-triggering the same open panel).
+    if (_previewOnboarding) {
+      if (showOnboarding) return
+      forceTourFiredRef.current = true
+      if (isEditModeRef.current) exitEditMode()
+      setShowOnboarding(true)
+      return
+    }
+    if (showOnboarding) return
     forceTourFiredRef.current = true
     if (isEditModeRef.current) exitEditMode()
     setTourStep(1)
-  }, [_forceTour, bookcaseRevealed, showTitle, showOnboarding, isViewOnly])
+  }, [_forceTour, _previewOnboarding, bookcaseRevealed, showTitle, showOnboarding, isViewOnly])
+
+  // Preview submit for ?tour=full — don't persist anything; just close onboarding and
+  // kick off the tour so the caller can preview the flow end-to-end.
+  async function handlePreviewOnboardingSubmit() {
+    setShowOnboarding(false)
+    setTourStep(1)
+  }
 
   function advanceTour() {
     const cur = tourStep
@@ -1288,7 +1325,8 @@ export default function App() {
 
   function finishTour() {
     try { localStorage.setItem('toma_tour_v1', '1') } catch { /* ignore */ }
-    if (isEditModeRef.current) exitEditMode()
+    // Leave edit mode as the tour left it (step 1 turns it on) rather than forcing
+    // the user back to browse mode right after teaching them what edit mode does.
     setTourStep(null)
   }
 
@@ -2287,11 +2325,25 @@ export default function App() {
     }
     panRaf = requestAnimationFrame(panTick)
 
+    // Any OTHER scroll while holding an item (desktop wheel, scrollbar drag, momentum) —
+    // the arm/ghost/drop-target are all computed from clientX/clientY via clientToStage,
+    // which reads the scroll offset live, so without a fresh onMove call after a scroll
+    // they stay pinned to the pointer's last stage position from before the scroll. That
+    // reads as Toma's held book "jumping" the moment the pointer next moves (rather than
+    // gliding with the page like it does outside a drag) — re-running onMove against the
+    // same on-screen point on every scroll keeps it glued throughout, not just at the end.
+    function onContainerScroll() {
+      if (lastPoint) onMove({ clientX: lastPoint.x, clientY: lastPoint.y })
+    }
+    const scrollEl = scrollRef.current
+    scrollEl?.addEventListener('scroll', onContainerScroll, { passive: true })
+
     document.addEventListener('pointermove', onMove)
     document.addEventListener('pointerup',   onUp)
     return () => {
       document.removeEventListener('pointermove', onMove)
       document.removeEventListener('pointerup',   onUp)
+      scrollEl?.removeEventListener('scroll', onContainerScroll)
       if (panRaf) cancelAnimationFrame(panRaf)
     }
   }, [editDragging])
@@ -2540,6 +2592,7 @@ export default function App() {
     || showBookPanel || showDecorPanel || showMonsterPanel || showShelfList
     || showShareModal || showPlateEdit || showAddShelfModal || editingShelfIdx !== null
     || showOnboarding
+    || tourStep != null
   uiOverlayOpenRef.current = uiOverlayOpen
   headDuckingRef.current = headDucking
   if (uiOverlayOpen) lookTargetRef.current = { x: 0, y: 0 }
@@ -3257,7 +3310,7 @@ export default function App() {
         </DialogBackdrop>
       )}
 
-      {showOnboarding && <OnboardingOverlay onSubmit={handleOnboardingSubmit} />}
+      {showOnboarding && <OnboardingOverlay onSubmit={_previewOnboarding ? handlePreviewOnboardingSubmit : handleOnboardingSubmit} />}
 
       {/* Guided tour — first-time users only, gated by localStorage['toma_tour_v1']. */}
       {tourStep !== null && (
