@@ -19,7 +19,6 @@ function check(result, context) {
 
 // ── Identity ──────────────────────────────────────────────────────────────────
 // Primary key is users.id, persisted in localStorage as toma_user_id.
-// last_ip is optional metadata — not used for lookup.
 
 const USER_ID_STORAGE_KEY = 'toma_user_id'
 
@@ -43,19 +42,6 @@ export function clearStoredUserId() {
   } catch { /* ignore */ }
 }
 
-export async function getMyIp() {
-  let r
-  try {
-    r = await fetch('https://api.ipify.org?format=json')
-  } catch (e) {
-    throw new DbError('Could not reach identity service', e)
-  }
-  if (!r.ok) throw new DbError(`Identity service returned ${r.status}`)
-  const json = await r.json()
-  if (!json?.ip) throw new DbError('Identity service returned no IP')
-  return json.ip
-}
-
 async function userExists(userId) {
   const data = check(
     await supabase.from('users').select('id').eq('id', userId).maybeSingle(),
@@ -64,24 +50,9 @@ async function userExists(userId) {
   return !!data
 }
 
-async function touchLastIp(userId) {
-  try {
-    const ip = await getMyIp()
-    await supabase.from('users').update({ last_ip: ip }).eq('id', userId)
-  } catch {
-    // Non-fatal — identity does not depend on IP.
-  }
-}
-
 async function createNewUser() {
-  let lastIp = null
-  try {
-    lastIp = await getMyIp()
-  } catch {
-    // First visit can still succeed without ipify.
-  }
   const data = check(
-    await supabase.from('users').insert({ last_ip: lastIp }).select('id').single(),
+    await supabase.from('users').insert({}).select('id').single(),
     'create user'
   )
   await ensureMonster(data.id)
@@ -89,38 +60,13 @@ async function createNewUser() {
   return data.id
 }
 
-async function tryAdoptLegacyUserByIp() {
-  // Users created before localStorage identity may still be keyed by last_ip.
-  try {
-    const ip = await getMyIp()
-    const data = check(
-      await supabase.from('users').select('id').eq('last_ip', ip).limit(1).maybeSingle(),
-      'lookup legacy user by ip'
-    )
-    if (data?.id) {
-      storeUserId(data.id)
-      return data.id
-    }
-  } catch {
-    // ignore — will create a fresh user below
-  }
-  return null
-}
-
 /** Resolve the current browser's user id — localStorage first, else create. */
 export async function resolveUserId() {
   const stored = getStoredUserId()
   if (stored) {
-    if (await userExists(stored)) {
-      touchLastIp(stored)
-      return stored
-    }
+    if (await userExists(stored)) return stored
     clearStoredUserId()
   }
-
-  const legacy = await tryAdoptLegacyUserByIp()
-  if (legacy) return legacy
-
   return createNewUser()
 }
 
