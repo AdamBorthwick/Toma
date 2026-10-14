@@ -42,6 +42,13 @@ input:-webkit-autofill:focus { -webkit-box-shadow: 0 0 0 30px white inset !impor
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-5px); }
 }
+/* fade in small → expand past size → pop back → rest at correct size */
+@keyframes loaderLetterIn {
+  0%   { opacity: 0; transform: scale(0.3); }
+  50%  { opacity: 1; transform: scale(1.22); }
+  70%  { opacity: 1; transform: scale(0.94); }
+  100% { opacity: 1; transform: scale(1); }
+}
 @keyframes blinkLid {
   0%, 90%, 100% { transform: scaleY(0); }
   94%, 96% { transform: scaleY(1); }

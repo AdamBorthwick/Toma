@@ -13,6 +13,7 @@ import { preloadCover, awaitCover, preloadCoversFromShelfContents, preloadCovers
 import { SHELVES, getShelfColors, reconstructShelf } from './data/shelves.jsx'
 import { getMonsterColors } from './data/monster.jsx'
 import { IconTrash, IconRotate } from './components/icons.jsx'
+import { LoaderWordmark } from './components/LoaderWordmark.jsx'
 import { CaveBackground, PoofSmoke, TomaHead } from './components/scene.jsx'
 import { getHeadIntroDuration, getHatOverhangAboveHeadPx } from './components/hats.jsx'
 import { EditableShelfRow, SavedShelfRow, DragGhost, ShelfPlate, ShelfRow } from './components/shelfRows.jsx'
@@ -726,7 +727,8 @@ export default function App() {
   const deleteConfirmedRef = useRef(false)
   const rotateDelayTimer = useRef(null)
   const rotateCooldownUntil = useRef(0)
-  const [rotateAnimKey, setRotateAnimKey] = useState(0)
+  // True only while the one-shot spin plays after a rotate toggle — never on pickup
+  const [rotateSpinning, setRotateSpinning] = useState(false)
   const retractModeRef = useRef(0)
   const lastMousePosRef = useRef(null)    // last known cursor in stage-local coords
   const viewportMouseRef = useRef(null)   // last known cursor in raw viewport coords
@@ -2157,6 +2159,7 @@ export default function App() {
     dragRotatedRef.current = false; setDragRotated(false)
     dragOverDeleteRef.current = false; setDragOverDelete(false)
     dragOverRotateRef.current = false; setDragOverRotate(false)
+    setRotateSpinning(false)
     deleteConfirmedRef.current = false
     wasOverRotateRef.current = false
     if (rotateDelayTimer.current) { clearTimeout(rotateDelayTimer.current); rotateDelayTimer.current = null }
@@ -2328,7 +2331,7 @@ export default function App() {
           if (overRotate && !wasOverRotateRef.current && Date.now() >= rotateCooldownUntil.current) {
             dragRotatedRef.current = !dragRotatedRef.current
             setDragRotated(dragRotatedRef.current)
-            setRotateAnimKey(k => k + 1)
+            setRotateSpinning(true)
             rotateCooldownUntil.current = Date.now() + 700
           }
           wasOverRotateRef.current = overRotate
@@ -2515,6 +2518,7 @@ export default function App() {
     dragRotatedRef.current = false; setDragRotated(false)
     dragOverDeleteRef.current = false; setDragOverDelete(false)
     dragOverRotateRef.current = false; setDragOverRotate(false)
+    setRotateSpinning(false)
     deleteConfirmedRef.current = false
     wasOverRotateRef.current = false
     if (rotateDelayTimer.current) { clearTimeout(rotateDelayTimer.current); rotateDelayTimer.current = null }
@@ -3001,7 +3005,7 @@ export default function App() {
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
         gap: 16, background: '#223152', color: '#FDF8EF', fontFamily: "'Manrope', sans-serif",
       }}>
-        <div style={{ fontFamily: "'Gasoek One', sans-serif", fontSize: 42, letterSpacing: 1 }}>TOMA!</div>
+        <LoaderWordmark />
         <p style={{ margin: 0, opacity: 0.65, fontSize: 14 }}>Loading your collection…</p>
       </div>
     )
@@ -3543,7 +3547,7 @@ export default function App() {
                     rotateDelayTimer.current = setTimeout(() => {
                       dragRotatedRef.current = !dragRotatedRef.current
                       setDragRotated(dragRotatedRef.current)
-                      setRotateAnimKey(k => k + 1)
+                      setRotateSpinning(true)
                       rotateCooldownUntil.current = Date.now() + 700
                       rotateDelayTimer.current = null
                     }, 380)
@@ -3553,9 +3557,9 @@ export default function App() {
                     setDragOverRotate(false)
                     if (rotateDelayTimer.current) { clearTimeout(rotateDelayTimer.current); rotateDelayTimer.current = null }
                   } : undefined}>
-                  <div key={rotateAnimKey} style={{
+                  <div onAnimationEnd={() => setRotateSpinning(false)} style={{
                     display: 'inline-block',
-                    animation: rotateAnimKey > 0
+                    animation: rotateSpinning
                       ? 'spinOnce 0.45s cubic-bezier(0.4,0,0.2,1)'
                       : (dragOverRotate ? 'rotateHover 0.42s ease-in-out infinite alternate' : 'none'),
                   }}><IconRotate size={28} color="currentColor" /></div>

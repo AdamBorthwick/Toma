@@ -5,6 +5,6 @@
   <circle cx="47" cy="62" r="13" fill="#1C1C2E"/>
   <circle cx="113" cy="62" r="13" fill="#1C1C2E"/>
   <rect x="58" y="80" width="44" height="20" rx="10" fill="#3BD424"/>
-  <rect x="77.75" y="93" width="4.5" height="7" fill="#FDF8EF"/>
   <path d="M50 125 L65 111 L80 97 L95 111 L110 125" stroke="#3BD424" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <rect x="77.75" y="93" width="4.5" height="7" fill="#FDF8EF"/>
 </svg>
