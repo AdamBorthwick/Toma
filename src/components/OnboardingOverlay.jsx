@@ -19,13 +19,15 @@ function OnboardingOverlay({ onSubmit }) {
   const [error, setError] = useState('')
   const canSubmit = name.trim() && shelfName.trim() && !loading
 
+  // Scrollable backdrop + auto-margin card: in short windows (a shrunk browser, a phone
+  // with the keyboard open) plain flex centering would clip the card's top and bottom.
   return (
     <DialogBackdrop
       zIndex={Z.onboarding}
       onClose={() => {}}
-      style={{ background: colors.backdropDialogHeavy }}
+      style={{ background: colors.backdropDialogHeavy, overflowY: 'auto' }}
     >
-      <DialogCard style={{ padding: '40px min(36px, 6vw)', width: 'min(360px, 92vw)' }}>
+      <DialogCard style={{ padding: '40px min(36px, 6vw)', width: 'min(360px, 92vw)', margin: 'auto' }}>
         <DialogTitle style={{ fontWeight: 800 }}>Welcome to TOMA!</DialogTitle>
         <DialogDescription style={{ marginBottom: 28 }}>Let's set up your bookshelf.</DialogDescription>
 

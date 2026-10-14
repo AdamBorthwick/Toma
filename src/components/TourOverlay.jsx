@@ -97,6 +97,9 @@ export function TourOverlay({ step, steps, isMobile = false, onNext, onFinish })
       left: '50%', top: '50%',
       transform: 'translate(-50%, -50%)',
       zIndex: TOUR_Z + 1,
+      // Short windows (shrunk browser): the demo card is ~400px tall — let it scroll
+      // instead of running off the top/bottom. Only when needed so the shadow isn't clipped.
+      ...(vh < 460 ? { maxHeight: vh - CARD_EDGE_INSET * 2, overflowY: 'auto', borderRadius: 20 } : null),
     }
   } else {
     // Pick whichever side of the target has the most free space so the card

@@ -100,7 +100,8 @@ function EditableShelfRow({ shelf, shelfIdx, items, dragging, dropTarget, innerR
             position: 'relative', flex: 1, height: shelfH,
             background: 'linear-gradient(180deg,#A4501D 0%,#EA8B50 8%)',
             overflow: 'hidden',
-            cursor: dragging ? 'grabbing' : 'default',
+            // inherit (not 'default') so the compact layout's grab-to-pan cursor shows over the shelf
+            cursor: dragging ? 'grabbing' : 'inherit',
           }}
         >
           {/* Empty-shelf hint — invites the first drop, hides while dragging (grid takes over) */}
@@ -157,6 +158,7 @@ function EditableShelfRow({ shelf, shelfIdx, items, dragging, dropTarget, innerR
             return (
             <div
               key={it.id}
+              data-no-pan
               onMouseEnter={() => setHoveredItemId(it.id)}
               onMouseLeave={() => setHoveredItemId(null)}
               onPointerDown={e => { if (!isMobile) e.preventDefault(); e.stopPropagation(); onItemPointerDown(e, shelfIdx, it) }}

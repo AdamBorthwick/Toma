@@ -1073,6 +1073,90 @@ export default function App() {
     }
   }, [isMobile, bookcaseRevealed, showTitle])
 
+  // Mouse drag-to-pan for the compact (mobile) layout. Touch pans by holding a finger near
+  // a screen edge, native touch scrolling is blocked, and the scrollbars are hidden — so a
+  // plain mouse (e.g. a desktop window shrunk below the breakpoint) had no way to move
+  // around once zoomed in. Dragging empty stage pans it; books, decor, and buttons keep
+  // their own click/drag behavior (see `blocksPan`).
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el || !isMobile || !bookcaseRevealed || showTitle) return
+
+    let drag = null          // { id, x, y, left, top, panning }
+    let swallowClick = false
+
+    // Anything that does its own thing on press must not start a pan: real controls,
+    // edit-mode items (data-no-pan, they start a book drag), and browse-mode books
+    // (cursor: pointer). Pannable background inherits cursor: grab from the container.
+    function blocksPan(target) {
+      if (!(target instanceof Element)) return true
+      if (target.closest('[data-no-pan], button, a, input, textarea, select, label, [role="button"]')) return true
+      for (let n = target; n && n !== el; n = n.parentElement) {
+        if (getComputedStyle(n).cursor === 'pointer') return true
+      }
+      return false
+    }
+
+    function onDown(e) {
+      if (e.pointerType === 'touch' || e.button !== 0) return
+      if (uiOverlayOpenRef.current || editDraggingRef.current || scaleAnimatingRef.current) return
+      // Nothing to pan when zoomed out and the whole bookcase fits.
+      if (!zoomedInRef.current && !mobileScrollNeededRef.current) return
+      if (blocksPan(e.target)) return
+      drag = { id: e.pointerId, x: e.clientX, y: e.clientY, left: el.scrollLeft, top: el.scrollTop, panning: false }
+      window.addEventListener('pointermove', onMove)
+      window.addEventListener('pointerup', onUp)
+      window.addEventListener('pointercancel', onUp)
+    }
+
+    function onMove(e) {
+      if (!drag || e.pointerId !== drag.id) return
+      if (editDraggingRef.current || scaleAnimatingRef.current) { onUp(e); return }
+      const dx = e.clientX - drag.x
+      const dy = e.clientY - drag.y
+      if (!drag.panning) {
+        if (Math.hypot(dx, dy) < 6) return
+        drag.panning = true
+        document.body.style.userSelect = 'none'
+        el.classList.add('is-panning')
+      }
+      if (zoomedInRef.current) {
+        const { min, max } = mobileShelfScrollBounds(el, scaleRef.current)
+        el.scrollLeft = Math.max(min, Math.min(max, drag.left - dx))
+      }
+      el.scrollTop = drag.top - dy
+    }
+
+    function onUp() {
+      if (drag?.panning) {
+        // The release lands on whatever is under the cursor — don't let it click through.
+        swallowClick = true
+        setTimeout(() => { swallowClick = false }, 0)
+      }
+      drag = null
+      document.body.style.userSelect = ''
+      el.classList.remove('is-panning')
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+    }
+
+    function onClickCapture(e) {
+      if (!swallowClick) return
+      swallowClick = false
+      e.stopPropagation()
+      e.preventDefault()
+    }
+
+    el.addEventListener('pointerdown', onDown)
+    window.addEventListener('click', onClickCapture, true)
+    return () => {
+      el.removeEventListener('pointerdown', onDown)
+      window.removeEventListener('click', onClickCapture, true)
+      onUp()
+    }
+  }, [isMobile, bookcaseRevealed, showTitle])
+
   // Zoomed-in: center horizontal scroll on the bookcase only when entering detail view.
   useEffect(() => {
     if (!isMobile || !bookcaseRevealed) {
@@ -1294,7 +1378,7 @@ export default function App() {
       steps.push({
         target: 'zoom-btn',
         title: 'Zoom in & out',
-        body: 'You can use the zoom tool to get a closer look at your bookshelf.',
+        body: 'Zoom in for a closer look at your shelves, then drag the background or move your cursor to a screen edge (or hold a finger there) to look around.',
       })
     }
     return steps
@@ -1663,13 +1747,37 @@ export default function App() {
   useEffect(() => {
     if (!isMobile || !bookcaseRevealed || showTitle) return
 
+    // Mouse hover counts too: parking the cursor near a window edge auto-pans like a finger
+    // held there. Skipped over real controls (zoom/share/footer buttons sit at the edges and
+    // would otherwise scroll the shelf whenever you reach for them) and while drag-panning.
+    let mouse = null   // { x, y, overUi } while the cursor is inside the window
+    function onMouseMoveEdge(e) {
+      // pointerType filter: touch taps also fire compat mousemoves, which would leave a
+      // phantom "cursor" parked at the tap point and keep panning after a finger lifts.
+      if (e.pointerType !== 'mouse') { mouse = null; return }
+      mouse = {
+        x: e.clientX, y: e.clientY,
+        overUi: !!(e.target instanceof Element && e.target.closest('button, a, input, textarea, select, label, [role="button"], .mobile-footer-scroll')),
+      }
+    }
+    function clearMouseEdge() { mouse = null }
+    window.addEventListener('pointermove', onMouseMoveEdge)
+    document.documentElement.addEventListener('mouseleave', clearMouseEdge)
+    window.addEventListener('blur', clearMouseEdge)
+
     let panRaf = null
     function panTick() {
       panRaf = requestAnimationFrame(panTick)
-      if (!mobileTouchActiveRef.current || !mobileScrollNeededRef.current) return
+      if (!mobileScrollNeededRef.current) return
       if (editDraggingRef.current || uiOverlayOpenRef.current || grabPhaseRef.current || introBlockRef.current) return
-      const vm = viewportMouseRef.current
-      if (vm) applyMobileEdgePanRef.current(vm.x, vm.y)
+      if (mobileTouchActiveRef.current) {
+        const vm = viewportMouseRef.current
+        if (vm) applyMobileEdgePanRef.current(vm.x, vm.y)
+        return
+      }
+      if (!mouse || mouse.overUi || scaleAnimatingRef.current) return
+      if (scrollRef.current?.classList.contains('is-panning')) return
+      applyMobileEdgePanRef.current(mouse.x, mouse.y)
     }
     panRaf = requestAnimationFrame(panTick)
 
@@ -1685,6 +1793,9 @@ export default function App() {
     return () => {
       if (panRaf) cancelAnimationFrame(panRaf)
       window.removeEventListener('touchmove', blockNativeScroll)
+      window.removeEventListener('pointermove', onMouseMoveEdge)
+      document.documentElement.removeEventListener('mouseleave', clearMouseEdge)
+      window.removeEventListener('blur', clearMouseEdge)
     }
   }, [isMobile, bookcaseRevealed, showTitle])
 
@@ -2904,11 +3015,13 @@ export default function App() {
     || (bookcaseRevealed && !showTitle && (!isMobile || mobileScrollNeeded))
   const titleScrollLocked = showTitle && !scrollUnlocked && !surfaceScrolling
   const mobileNoTouchScroll = !uiOverlayOpen && (mobileScrollLocked || mobileEdgeScroll)
+  // Compact layout where the stage overflows the window: a mouse can drag empty stage to pan.
+  const mousePannable = isMobile && bookcaseRevealed && !showTitle && !uiOverlayOpen && !editDragging && (zoomedIn || mobileScrollNeeded)
 
   return (
     <StageScaleProvider scale={scale} isMobile={isMobile} zoomedIn={zoomedIn} scaleTransitioning={scaleTransitioning}>
     <>
-    <div ref={scrollRef} className="fill-viewport page-scroll" style={{
+    <div ref={scrollRef} className={`fill-viewport page-scroll${mousePannable ? ' mouse-pannable' : ''}`} style={{
       ...(titleScrollLocked ? { position: 'fixed', inset: 0, width: '100%' } : null),
       overflowY: pageCanScrollY ? 'auto' : 'hidden',
       overflowX: (isMobile && zoomedIn && !showTitle) ? 'auto' : 'hidden',

@@ -437,6 +437,12 @@ button, [role="button"] { touch-action: manipulation; }
   overscroll-behavior-y: contain;
 }
 
+/* Compact layout with a mouse: empty stage can be dragged to pan (see the drag-to-pan
+   effect in App.jsx). Elements with their own cursor (books, buttons) keep it. */
+.mouse-pannable { cursor: grab; }
+.mouse-pannable.is-panning,
+.mouse-pannable.is-panning * { cursor: grabbing !important; }
+
 .mobile-footer-scroll {
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: contain;
